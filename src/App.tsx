@@ -114,7 +114,7 @@ export default function App() {
                 <img src="/ci.png" alt="HD현대삼호" className="h-full object-contain" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
               </div>
               <div>
-                  <h1 className="text-base md:text-lg font-kor font-black text-white tracking-tight leading-none">HD현대삼호 <span className="text-cyan-400 font-tech text-[10px] ml-1 align-top tracking-[0.2em]">CBT_TOPIK</span></h1>
+                  <h1 className="text-base md:text-lg font-tech font-black text-cyan-400 tracking-widest leading-none">CBT_TOPIK</h1>
                   <p className="text-[9px] text-cyan-600/70 font-eng uppercase tracking-[0.2em] mt-0.5 hidden md:block">Professional Evaluation System</p>
               </div>
           </div>
