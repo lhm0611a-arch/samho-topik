@@ -39,7 +39,7 @@ export const MainScreen: React.FC<{ onOpenAdmin: () => void, onOpenQr: () => voi
         {/* Tag & CI */}
         <div className="flex flex-col items-center gap-4 mt-8 mb-6">
           <div className="h-10 md:h-12">
-            <img src="/ci.png" alt="HD현대삼호" className="h-full object-contain" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+            <img src="/ci.png" alt="HD현대삼호" className="h-full object-contain drop-shadow-[0_0_6px_rgba(255,255,255,0.6)]" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
           </div>
           <div className="inline-flex items-center gap-2 px-3 py-1 bg-cyan-950/40 border border-cyan-900/50 rounded-sm">
             <span className="w-1 h-1 bg-cyan-400"></span>
