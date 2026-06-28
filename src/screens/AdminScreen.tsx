@@ -162,7 +162,7 @@ export const AdminScreen: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-2 md:p-4 pt-[max(env(safe-area-inset-top),0.5rem)] pb-[max(env(safe-area-inset-bottom),0.5rem)]">
+    <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px] flex items-center justify-center p-2 md:p-4 pt-[max(env(safe-area-inset-top),0.5rem)] pb-[max(env(safe-area-inset-bottom),0.5rem)]">
       <GlassCard className="w-full max-w-5xl h-[95vh] md:h-[90vh] rounded-sm border-t-amber-500 flex flex-col overflow-hidden shadow-2xl">
         <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/90 shrink-0">
           <div>
