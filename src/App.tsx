@@ -111,7 +111,7 @@ export default function App() {
         <header className="glass-card border-b border-cyan-900/50 p-3 md:p-4 flex justify-between items-center shrink-0 z-20 pt-[max(env(safe-area-inset-top),0.75rem)]">
           <div className="flex items-center gap-2 md:gap-3">
               <div className="h-8 md:h-10 flex items-center justify-center">
-                <img src="/ci.png" alt="HD현대삼호" className="h-full object-contain" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                <img src="/ci.png" alt="HD현대삼호" className="h-full object-contain drop-shadow-[0_0_6px_rgba(255,255,255,0.6)]" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
               </div>
               <div>
                   <h1 className="text-base md:text-lg font-tech font-black text-cyan-400 tracking-widest leading-none">CBT_TOPIK</h1>
