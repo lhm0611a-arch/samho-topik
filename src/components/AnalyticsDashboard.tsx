@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { collection, getDocs, query, orderBy } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, deleteDoc, doc } from 'firebase/firestore';
 import { db, appId, exportResultsToCSV } from '../lib/firebase';
 import { GlassCard } from './ui';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell, LineChart, Line } from 'recharts';
-import { X, BarChart2, Users, Target, Search, Download, Trophy, ChevronDown, ChevronUp } from 'lucide-react';
+import { X, BarChart2, Users, Target, Search, Download, Trophy, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
 
 interface ResultData {
   id: string;
@@ -72,26 +72,32 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
   const avgLc = totalCandidates > 0 ? Math.round(filteredExams.reduce((sum, r) => sum + r.lcScore, 0) / totalCandidates) : 0;
   const avgRc = totalCandidates > 0 ? Math.round(filteredExams.reduce((sum, r) => sum + r.rcScore, 0) / totalCandidates) : 0;
 
-  // Prepare score distribution data
+  // Prepare score distribution data (200점 만점 기준 20점 단위)
   const scoreRanges = [
     { name: '0-20', count: 0, min: 0, max: 20 },
     { name: '21-40', count: 0, min: 21, max: 40 },
     { name: '41-60', count: 0, min: 41, max: 60 },
     { name: '61-80', count: 0, min: 61, max: 80 },
     { name: '81-100', count: 0, min: 81, max: 100 },
+    { name: '101-120', count: 0, min: 101, max: 120 },
+    { name: '121-140', count: 0, min: 121, max: 140 },
+    { name: '141-160', count: 0, min: 141, max: 160 },
+    { name: '161-180', count: 0, min: 161, max: 180 },
+    { name: '181-200', count: 0, min: 181, max: 200 },
   ];
   
   filteredExams.forEach(r => {
-    // Assuming max score is 100 or normalized to 100 for distribution, or maybe TOPIK max is 100 per test?
-    // Let's just group by actual score. If max score is >100, this needs adjustment. 
-    // Let's calculate percentage based on max possible if we know it, else just raw score ranges.
-    // For now let's just use raw score, TOPIK I total is 200, TOPIK II is 300.
     const s = r.score;
     if (s <= 20) scoreRanges[0].count++;
     else if (s <= 40) scoreRanges[1].count++;
     else if (s <= 60) scoreRanges[2].count++;
     else if (s <= 80) scoreRanges[3].count++;
-    else scoreRanges[4].count++;
+    else if (s <= 100) scoreRanges[4].count++;
+    else if (s <= 120) scoreRanges[5].count++;
+    else if (s <= 140) scoreRanges[6].count++;
+    else if (s <= 160) scoreRanges[7].count++;
+    else if (s <= 180) scoreRanges[8].count++;
+    else scoreRanges[9].count++;
   });
 
   const handleSort = (field: keyof ResultData) => {
@@ -107,6 +113,25 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
     if (sortField !== field) return <span className="opacity-20 ml-1">↕</span>;
     return sortDesc ? <ChevronDown size={12} className="inline ml-1 text-cyan-400" /> : <ChevronUp size={12} className="inline ml-1 text-cyan-400" />;
   };
+
+  const handleDelete = async (id: string) => {
+    if (window.confirm("정말 이 응시자의 기록을 삭제하시겠습니까? (Are you sure you want to delete this record?)")) {
+      try {
+        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'exam_results', id));
+        setResults(results.filter(r => r.id !== id));
+      } catch (error) {
+        console.error("Error deleting document:", error);
+        alert("삭제 중 오류가 발생했습니다. (Error deleting document.)");
+      }
+    }
+  };
+
+  // Prepare performance trend data (chronological)
+  const chronologicalResults = [...filteredExams].sort((a, b) => {
+    const ta = a.timestamp?.toMillis() || 0;
+    const tb = b.timestamp?.toMillis() || 0;
+    return ta - tb; // Oldest to newest
+  }).slice(-30); // Last 30 exams
 
   return (
     <div className="fixed inset-0 z-[400] bg-black/90 backdrop-blur-xl flex items-center justify-center p-2 md:p-6 animate-fade-in">
@@ -236,7 +261,7 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
                   <h3 className="font-tech text-xs tracking-widest text-slate-400 mb-4">RECENT PERFORMANCES</h3>
                   <div className="flex-1">
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={searchedResults.slice(0, 20).reverse()} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                      <LineChart data={chronologicalResults} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
                         <XAxis dataKey="studentName" stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => val.substring(0, 3) + '..'} />
                         <YAxis stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} />
@@ -282,6 +307,7 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
                         <th className="px-4 py-3 cursor-pointer hover:bg-slate-800/50 transition-colors text-right hidden sm:table-cell" onClick={() => handleSort('rcScore')}>
                           R/C <SortIcon field="rcScore" />
                         </th>
+                        <th className="px-4 py-3 w-10"></th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/50">
@@ -297,11 +323,17 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
                           <td className="px-4 py-3 text-right font-tech font-bold text-cyan-400">{r.score}</td>
                           <td className="px-4 py-3 text-right font-tech text-slate-400 hidden sm:table-cell">{r.lcScore}</td>
                           <td className="px-4 py-3 text-right font-tech text-slate-400 hidden sm:table-cell">{r.rcScore}</td>
+                          <td className="px-4 py-3 text-right">
+                            <button onClick={() => handleDelete(r.id)} className="flex items-center justify-end gap-1 text-slate-500 hover:text-red-500 transition-colors ml-auto" title="Delete record">
+                              <Trash2 size={14} />
+                              <span className="text-[10px] hidden sm:inline">삭제</span>
+                            </button>
+                          </td>
                         </tr>
                       ))}
                       {searchedResults.length === 0 && (
                         <tr>
-                          <td colSpan={8} className="px-4 py-10 text-center text-slate-500 font-tech tracking-widest">
+                          <td colSpan={9} className="px-4 py-10 text-center text-slate-500 font-tech tracking-widest">
                             NO RECORDS FOUND
                           </td>
                         </tr>
