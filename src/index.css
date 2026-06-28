@@ -9,7 +9,7 @@
 
 :root {
   --dx-dark: #030712;
-  --dx-panel: rgba(10, 15, 30, 0.75);
+  --dx-panel: rgba(10, 15, 30, 0.5);
   --dx-panel-border: rgba(14, 165, 233, 0.3);
   --dx-accent: #0ea5e9;
   --dx-accent-glow: rgba(14, 165, 233, 0.4);
@@ -34,7 +34,7 @@ html, body {
 
 /* Background gradient layered over body */
 .app-bg {
-  background-image: linear-gradient(rgba(3, 7, 18, 0.85), rgba(3, 7, 18, 0.9)), url('/yard.png');
+  background-image: linear-gradient(rgba(3, 7, 18, 0.6), rgba(3, 7, 18, 0.7)), url('/yard.png');
   background-size: cover;
   background-position: center;
   background-attachment: fixed;
