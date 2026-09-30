@@ -1,7 +1,10 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, signInAnonymously } from "firebase/auth";
-import { getFirestore, collection, addDoc, serverTimestamp, getDocs, doc, setDoc } from "firebase/firestore";
-import { ExamResult } from "../types";
+import { 
+  getFirestore, collection, addDoc, serverTimestamp, getDocs, 
+  doc, setDoc, getDoc, onSnapshot, deleteDoc 
+} from "firebase/firestore";
+import { ExamResult, Question } from "../types";
 
 // Extracted from original file
 const firebaseConfig = {
@@ -20,9 +23,197 @@ export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const appId = "topik-cbt";
 
+export async function ensureAuth() {
+  try {
+    if (!auth.currentUser) {
+      await signInAnonymously(auth);
+    }
+  } catch (e) {
+    console.warn("Firebase anonymous auth fallback:", e);
+  }
+}
+
+// ----------------- Real-time Exam Config (Active Slot & Available Slots) -----------------
+
+export interface ExamConfig {
+  activeExamName: string;
+  availableExams: string[];
+}
+
+const DEFAULT_EXAMS = [
+  '모의고사1회', '모의고사2회', '모의고사3회',
+  '모의고사4회', '모의고사5회', '모의고사6회'
+];
+
+export async function getExamConfig(): Promise<ExamConfig> {
+  try {
+    await ensureAuth();
+    const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'exam_config');
+    const snap = await getDoc(configRef);
+    if (snap.exists()) {
+      const data = snap.data();
+      return {
+        activeExamName: data.activeExamName || '모의고사1회',
+        availableExams: Array.isArray(data.availableExams) && data.availableExams.length > 0 
+          ? data.availableExams 
+          : DEFAULT_EXAMS
+      };
+    }
+  } catch (e) {
+    console.warn("Failed to get exam config from Firestore:", e);
+  }
+
+  return {
+    activeExamName: '모의고사1회',
+    availableExams: DEFAULT_EXAMS
+  };
+}
+
+export function subscribeExamConfig(callback: (config: ExamConfig) => void): () => void {
+  const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'exam_config');
+  return onSnapshot(configRef, (snap) => {
+    if (snap.exists()) {
+      const data = snap.data();
+      callback({
+        activeExamName: data.activeExamName || '모의고사1회',
+        availableExams: Array.isArray(data.availableExams) && data.availableExams.length > 0
+          ? data.availableExams
+          : DEFAULT_EXAMS
+      });
+    }
+  }, (err) => {
+    console.warn("Exam config onSnapshot error:", err);
+  });
+}
+
+export async function updateActiveExam(examName: string, currentAvailable?: string[]): Promise<boolean> {
+  try {
+    await ensureAuth();
+    const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'exam_config');
+    const existing = await getDoc(configRef);
+    let available = currentAvailable || DEFAULT_EXAMS;
+    if (existing.exists()) {
+      const d = existing.data();
+      if (Array.isArray(d.availableExams) && d.availableExams.length > 0) {
+        available = d.availableExams;
+      }
+    }
+    if (!available.includes(examName)) {
+      available = [...available, examName];
+    }
+
+    await setDoc(configRef, {
+      activeExamName: examName,
+      availableExams: available,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+
+    // Background sync to GAS
+    fetch(GAS_URL, { 
+      method: 'POST', 
+      mode: 'no-cors', 
+      body: JSON.stringify({ action: 'setActiveExam', examName }) 
+    }).catch(err => console.warn("GAS background sync error:", err));
+
+    return true;
+  } catch (e) {
+    console.error("updateActiveExam error:", e);
+    return false;
+  }
+}
+
+export async function addAvailableExamSlot(examName: string): Promise<boolean> {
+  try {
+    await ensureAuth();
+    const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'exam_config');
+    const existing = await getDoc(configRef);
+    let available = DEFAULT_EXAMS;
+    let active = examName;
+    if (existing.exists()) {
+      const d = existing.data();
+      available = Array.isArray(d.availableExams) ? d.availableExams : DEFAULT_EXAMS;
+      active = d.activeExamName || examName;
+    }
+    if (!available.includes(examName)) {
+      available = [...available, examName];
+    }
+
+    await setDoc(configRef, {
+      activeExamName: active,
+      availableExams: available,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+
+    fetch(GAS_URL, { 
+      method: 'POST', 
+      mode: 'no-cors', 
+      body: JSON.stringify({ action: 'setActiveExam', examName }) 
+    }).catch(err => console.warn("GAS background sync error:", err));
+
+    return true;
+  } catch (e) {
+    console.error("addAvailableExamSlot error:", e);
+    return false;
+  }
+}
+
+// ----------------- Fast Slot Questions Persistence -----------------
+
+export async function saveExamQuestionsToFirestore(examName: string, questions: Question[]): Promise<boolean> {
+  try {
+    await ensureAuth();
+    const slotDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'exam_slots', examName);
+    await setDoc(slotDocRef, {
+      examName,
+      questions,
+      questionCount: questions.length,
+      updatedAt: serverTimestamp()
+    });
+
+    // Also background sync to GAS
+    const dataForGas = questions.map((o: any) => [
+      o.num ?? "", o.type ?? "", o.passage ?? "", o.question ?? "",
+      o.image ?? "", o.options?.[0] ?? o.opt1 ?? "", o.options?.[1] ?? o.opt2 ?? "",
+      o.options?.[2] ?? o.opt3 ?? "", o.options?.[3] ?? o.opt4 ?? "",
+      o.answer !== undefined && o.answer !== "" ? (typeof o.answer === 'number' ? o.answer + 1 : o.answer) : "",
+      o.score ?? ""
+    ]);
+
+    fetch(GAS_URL, { 
+      method: 'POST', 
+      mode: 'no-cors', 
+      body: JSON.stringify({ action: 'saveQuestions', examName, questionsData: dataForGas }) 
+    }).catch(err => console.warn("GAS save questions sync warning:", err));
+
+    return true;
+  } catch (e) {
+    console.error("Failed to save questions to Firestore:", e);
+    return false;
+  }
+}
+
+export async function getExamQuestionsFromFirestore(examName: string): Promise<Question[] | null> {
+  try {
+    await ensureAuth();
+    const slotDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'exam_slots', examName);
+    const snap = await getDoc(slotDocRef);
+    if (snap.exists()) {
+      const data = snap.data();
+      if (Array.isArray(data.questions) && data.questions.length > 0) {
+        return data.questions;
+      }
+    }
+  } catch (e) {
+    console.warn(`Firestore getQuestions for ${examName} error:`, e);
+  }
+  return null;
+}
+
+// ----------------- Live Session & Results -----------------
+
 export async function updateLiveSession(regNo: string, name: string, examName: string, status: 'WAITING' | 'TESTING' | 'SUBMITTED', answered: number, total: number, score?: number) {
   try {
-    if (!auth.currentUser) await signInAnonymously(auth);
+    await ensureAuth();
     const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'active_sessions', regNo);
     await setDoc(docRef, {
       regNo, name, examName, status, answered, total, score: score ?? null, lastUpdate: serverTimestamp()
@@ -32,9 +223,20 @@ export async function updateLiveSession(regNo: string, name: string, examName: s
   }
 }
 
+export async function deleteLiveSession(regNo: string): Promise<boolean> {
+  try {
+    await ensureAuth();
+    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'active_sessions', regNo));
+    return true;
+  } catch (e) {
+    console.error("Failed to delete live session:", e);
+    return false;
+  }
+}
+
 export async function saveResultToFirebase(resultData: ExamResult): Promise<boolean> {
   try {
-    if (!auth.currentUser) await signInAnonymously(auth);
+    await ensureAuth();
     
     const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'exam_results');
     await addDoc(colRef, {
@@ -46,14 +248,24 @@ export async function saveResultToFirebase(resultData: ExamResult): Promise<bool
     return true;
   } catch (error: any) {
     console.error("파이어베이스 저장 에러:", error);
-    alert("Firebase 통신 실패: " + error.message + "\n(데이터는 구글 시트로 우회 전송됩니다.)");
     return false; 
+  }
+}
+
+export async function deleteExamResult(id: string): Promise<boolean> {
+  try {
+    await ensureAuth();
+    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'exam_results', id));
+    return true;
+  } catch (e) {
+    console.error("Failed to delete exam result:", e);
+    return false;
   }
 }
 
 export async function exportResultsToCSV() {
   try {
-    if (!auth.currentUser) await signInAnonymously(auth);
+    await ensureAuth();
 
     const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'exam_results');
     const snapshot = await getDocs(colRef);
@@ -106,3 +318,4 @@ export async function sendToGoogleSheet(data: ExamResult) {
     console.error("서버 전송 에러", e); 
   }
 }
+

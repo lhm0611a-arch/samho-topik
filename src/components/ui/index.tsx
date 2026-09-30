@@ -1,7 +1,7 @@
 import React from 'react';
 
-export const GlassCard: React.FC<{ children: React.ReactNode; className?: string; onClick?: (e: React.MouseEvent<HTMLDivElement>) => void }> = ({ children, className = '', onClick }) => (
-  <div className={`glass-card ${className}`} onClick={onClick}>
+export const GlassCard: React.FC<{ children: React.ReactNode; className?: string; style?: React.CSSProperties; onClick?: (e: React.MouseEvent<HTMLDivElement>) => void }> = ({ children, className = '', style, onClick }) => (
+  <div className={`glass-card ${className}`} style={style} onClick={onClick}>
     {children}
   </div>
 );

@@ -11,23 +11,75 @@ async function startServer() {
   app.use(express.json({ limit: '50mb' }));
 
   // Initialize Gemini API
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const ai = new GoogleGenAI({
+    apiKey: process.env.GEMINI_API_KEY,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      },
+    },
+  });
+
+  // Helper with retry on rate limit (429) & high demand / temporary unavailability (503 / 500)
+  // along with model fallback (gemini-3.7-flash -> gemini-2.5-flash)
+  async function generateWithFallback(
+    createParams: (model: string) => { contents: any; config?: any },
+    models = ['gemini-3.7-flash', 'gemini-2.5-flash'],
+    maxRetriesPerModel = 2
+  ) {
+    let lastError: any = null;
+
+    for (const model of models) {
+      let delay = 1500;
+      for (let attempt = 1; attempt <= maxRetriesPerModel; attempt++) {
+        try {
+          const params = createParams(model);
+          return await ai.models.generateContent({
+            model,
+            contents: params.contents,
+            config: params.config,
+          });
+        } catch (err: any) {
+          lastError = err;
+          const isTransient =
+            err?.status === 429 ||
+            err?.status === 503 ||
+            err?.status === 500 ||
+            err?.message?.includes("429") ||
+            err?.message?.includes("503") ||
+            err?.message?.includes("RESOURCE_EXHAUSTED") ||
+            err?.message?.includes("UNAVAILABLE") ||
+            err?.message?.includes("high demand");
+
+          if (isTransient && attempt < maxRetriesPerModel) {
+            console.warn(`[Gemini] Transient error on ${model} (attempt ${attempt}/${maxRetriesPerModel}): ${err?.message}. Retrying in ${delay}ms...`);
+            await new Promise((r) => setTimeout(r, delay));
+            delay *= 2;
+          } else {
+            console.warn(`[Gemini] Model ${model} failed after attempt ${attempt}. Trying next fallback model if available.`);
+            break; // Try next fallback model
+          }
+        }
+      }
+    }
+
+    throw lastError || new Error("All Gemini models failed");
+  }
 
   // API Route: AI Feedback
   app.post("/api/feedback", async (req, res) => {
     try {
       const { prompt, systemInstruction } = req.body;
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.5-flash',
+      const response = await generateWithFallback((model) => ({
         contents: prompt,
         config: {
           systemInstruction,
-        }
-      });
+        },
+      }));
       res.json({ text: response.text });
     } catch (error: any) {
       console.error("AI Feedback Error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: error.message || "Failed to generate AI feedback" });
     }
   });
 
@@ -36,26 +88,25 @@ async function startServer() {
     try {
       const { prompt, base64Image } = req.body;
       
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.5-flash',
+      const response = await generateWithFallback((model) => ({
         contents: [
           prompt,
           {
             inlineData: {
               data: base64Image,
-              mimeType: "image/jpeg"
-            }
-          }
+              mimeType: "image/jpeg",
+            },
+          },
         ],
         config: {
-          responseMimeType: "application/json"
-        }
-      });
+          responseMimeType: "application/json",
+        },
+      }));
       
       res.json({ text: response.text });
     } catch (error: any) {
       console.error("AI Extraction Error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: error.message || "Failed to extract PDF data" });
     }
   });
 

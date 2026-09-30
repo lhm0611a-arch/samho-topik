@@ -33,6 +33,7 @@ interface ExamState {
   
   isExamRunning: boolean;
   startExam: () => void;
+  startFreshExam: () => void;
   endExam: () => void;
 
   timeLeft: number;
@@ -64,14 +65,18 @@ export const useExamStore = create<ExamState>()(
       activeExamName: '모의고사1회',
       setActiveExamName: (name) => set({ activeExamName: name }),
       
-      availableExams: ['모의고사1회'],
+      availableExams: ['모의고사1회', '모의고사2회', '모의고사3회', '모의고사4회', '모의고사5회', '모의고사6회'],
       setAvailableExams: (exams) => set({ availableExams: exams }),
 
       questions: [],
-      setQuestions: (qs) => set({ 
-        questions: qs, 
-        answers: new Array(qs.length).fill(null),
-        bookmarks: new Array(qs.length).fill(false)
+      setQuestions: (qs) => set((state) => {
+        // Only reset answers if questions length changed or not in active exam
+        const shouldResetAnswers = !state.isExamRunning || state.answers.length !== qs.length;
+        return {
+          questions: qs,
+          answers: shouldResetAnswers ? new Array(qs.length).fill(null) : state.answers,
+          bookmarks: shouldResetAnswers ? new Array(qs.length).fill(false) : state.bookmarks
+        };
       }),
 
       currentIdx: 0,
@@ -96,7 +101,22 @@ export const useExamStore = create<ExamState>()(
       jumpToQuestion: (idx) => set({ currentIdx: idx }),
 
       isExamRunning: false,
-      startExam: () => set({ isExamRunning: true, currentScreen: 'test', currentIdx: 0 }),
+      startExam: () => set((state) => ({ 
+        isExamRunning: true, 
+        currentScreen: 'test', 
+        currentIdx: 0,
+        answers: state.answers.length === state.questions.length ? state.answers : new Array(state.questions.length).fill(null),
+        bookmarks: state.bookmarks.length === state.questions.length ? state.bookmarks : new Array(state.questions.length).fill(false)
+      })),
+      startFreshExam: () => set((state) => ({
+        isExamRunning: true,
+        currentScreen: 'test',
+        currentIdx: 0,
+        answers: new Array(state.questions.length).fill(null),
+        bookmarks: new Array(state.questions.length).fill(false),
+        timeLeft: 100 * 60,
+        result: null
+      })),
       endExam: () => set({ isExamRunning: false }),
 
       timeLeft: 100 * 60,
@@ -122,16 +142,19 @@ export const useExamStore = create<ExamState>()(
     {
       name: 'topik-cbt-storage',
       partialize: (state) => ({
-        candidate: state.candidate,
         selectedLang: state.selectedLang,
-        questions: state.questions,
-        answers: state.answers,
-        bookmarks: state.bookmarks,
-        currentIdx: state.currentIdx,
+        activeExamName: state.activeExamName,
+        availableExams: state.availableExams,
+        // Only persist candidate, answers, and screen if exam is actively in progress
+        candidate: state.isExamRunning ? state.candidate : null,
+        answers: state.isExamRunning ? state.answers : [],
+        bookmarks: state.isExamRunning ? state.bookmarks : [],
+        currentIdx: state.isExamRunning ? state.currentIdx : 0,
         isExamRunning: state.isExamRunning,
-        timeLeft: state.timeLeft,
-        currentScreen: state.currentScreen,
-        activeExamName: state.activeExamName
+        timeLeft: state.isExamRunning ? state.timeLeft : 100 * 60,
+        // NEVER persist 'result' screen as startup screen!
+        currentScreen: state.isExamRunning ? 'test' : 'main',
+        result: state.result
       })
     }
   )

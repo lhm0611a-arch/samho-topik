@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { collection, getDocs, query, orderBy, deleteDoc, doc } from 'firebase/firestore';
-import { db, appId, exportResultsToCSV } from '../lib/firebase';
+import { collection, getDocs, query, orderBy } from 'firebase/firestore';
+import { db, appId, exportResultsToCSV, deleteExamResult, ensureAuth } from '../lib/firebase';
 import { GlassCard } from './ui';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell, LineChart, Line } from 'recharts';
 import { X, BarChart2, Users, Target, Search, Download, Trophy, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
@@ -30,6 +30,7 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
   useEffect(() => {
     const fetchData = async () => {
       try {
+        await ensureAuth();
         const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'exam_results'), orderBy('timestamp', 'desc'));
         const querySnapshot = await getDocs(q);
         const data: ResultData[] = [];
@@ -117,8 +118,12 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
   const handleDelete = async (id: string) => {
     if (window.confirm("정말 이 응시자의 기록을 삭제하시겠습니까? (Are you sure you want to delete this record?)")) {
       try {
-        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'exam_results', id));
-        setResults(results.filter(r => r.id !== id));
+        const ok = await deleteExamResult(id);
+        if (ok) {
+          setResults(prev => prev.filter(r => r.id !== id));
+        } else {
+          throw new Error("삭제 작업 실패");
+        }
       } catch (error) {
         console.error("Error deleting document:", error);
         alert("삭제 중 오류가 발생했습니다. (Error deleting document.)");

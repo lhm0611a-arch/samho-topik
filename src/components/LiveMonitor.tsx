@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
-import { db, appId } from '../lib/firebase';
+import { db, appId, deleteLiveSession, ensureAuth } from '../lib/firebase';
 import { GlassCard } from './ui';
-import { Activity, X, Users, CheckCircle2, Clock } from 'lucide-react';
+import { Activity, X, Users, CheckCircle2, Clock, Trash2 } from 'lucide-react';
 
 interface SessionData {
   regNo: string;
@@ -19,6 +19,7 @@ export const LiveMonitor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const [sessions, setSessions] = useState<SessionData[]>([]);
 
   useEffect(() => {
+    ensureAuth();
     const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'active_sessions'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data: SessionData[] = [];
@@ -36,6 +37,16 @@ export const LiveMonitor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
     return () => unsubscribe();
   }, []);
+
+  const handleDeleteSession = async (regNo: string, name: string) => {
+    if (window.confirm(`'${name} (${regNo})' 응시자 세션을 모니터링 목록에서 삭제하시겠습니까?`)) {
+      try {
+        await deleteLiveSession(regNo);
+      } catch (e) {
+        alert("삭제 중 오류가 발생했습니다.");
+      }
+    }
+  };
 
   const testingCount = sessions.filter(s => s.status === 'TESTING').length;
   const waitingCount = sessions.filter(s => s.status === 'WAITING').length;
@@ -109,9 +120,18 @@ export const LiveMonitor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                       <h4 className="font-kor font-bold text-white text-base leading-none mb-1">{s.name}</h4>
                       <p className="font-tech text-slate-400 text-[10px] tracking-widest">{s.regNo}</p>
                     </div>
-                    {isWaiting && <span className="bg-amber-900/30 text-amber-500 border border-amber-800 px-2 py-0.5 rounded-sm text-[9px] font-tech tracking-widest">STANDBY</span>}
-                    {isTesting && <span className="bg-cyan-900/30 text-cyan-400 border border-cyan-800 px-2 py-0.5 rounded-sm text-[9px] font-tech tracking-widest flex items-center gap-1"><span className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-pulse"></span> IN_PROGRESS</span>}
-                    {isSubmitted && <span className="bg-green-900/30 text-[#00b050] border border-green-800 px-2 py-0.5 rounded-sm text-[9px] font-tech tracking-widest">COMPLETED</span>}
+                    <div className="flex items-center gap-1.5">
+                      {isWaiting && <span className="bg-amber-900/30 text-amber-500 border border-amber-800 px-2 py-0.5 rounded-sm text-[9px] font-tech tracking-widest">STANDBY</span>}
+                      {isTesting && <span className="bg-cyan-900/30 text-cyan-400 border border-cyan-800 px-2 py-0.5 rounded-sm text-[9px] font-tech tracking-widest flex items-center gap-1"><span className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-pulse"></span> IN_PROGRESS</span>}
+                      {isSubmitted && <span className="bg-green-900/30 text-[#00b050] border border-green-800 px-2 py-0.5 rounded-sm text-[9px] font-tech tracking-widest">COMPLETED</span>}
+                      <button 
+                        onClick={() => handleDeleteSession(s.regNo, s.name)} 
+                        className="text-slate-500 hover:text-red-400 p-1 rounded hover:bg-slate-800/80 transition-colors"
+                        title="세션 삭제"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2 mt-2">

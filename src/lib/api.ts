@@ -5,11 +5,11 @@ export async function getAIFeedback(prompt: string, systemInstruction: string): 
     body: JSON.stringify({ prompt, systemInstruction }),
   });
   
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error("Failed to fetch AI feedback");
+    throw new Error(data.error || "Failed to fetch AI feedback");
   }
   
-  const data = await res.json();
   return data.text;
 }
 
@@ -20,10 +20,11 @@ export async function extractPDFWithAI(prompt: string, base64Image: string): Pro
     body: JSON.stringify({ prompt, base64Image }),
   });
   
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error("Failed to extract PDF data");
+    throw new Error(data.error || "Failed to extract PDF data");
   }
   
-  const data = await res.json();
   return data.text;
 }
+
