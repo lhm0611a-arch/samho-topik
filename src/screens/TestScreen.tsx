@@ -185,12 +185,12 @@ export const TestScreen: React.FC = () => {
       </div>
       
       {/* Scrollable Question Content Area */}
-      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto p-2.5 sm:p-5 md:p-6 no-scrollbar w-full">
-        <div className="w-full flex flex-col items-center pb-2">
-          <GlassCard className="w-full max-w-3xl mx-auto p-3.5 sm:p-6 rounded-sm shadow-xl relative overflow-hidden">
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto p-2.5 sm:p-4 md:p-6 no-scrollbar w-full flex flex-col">
+        <div className="w-full min-h-full flex flex-col items-center justify-start my-auto pb-2 sm:pb-4">
+          <GlassCard className="w-full max-w-3xl mx-auto p-3.5 sm:p-5 md:p-6 rounded-sm shadow-xl relative overflow-hidden my-auto transition-all">
             
             {/* Top Question Header */}
-            <div className="flex justify-between items-center border-b border-slate-800 pb-2.5 mb-3.5 gap-2">
+            <div className="flex justify-between items-center border-b border-slate-800 pb-2.5 mb-3 gap-2">
               <div className="flex items-center gap-2 flex-wrap">
                 {isExample ? (
                   <span className="text-[#00b050] font-extrabold text-xl md:text-2xl tracking-normal font-kor">[예시]</span>
@@ -226,7 +226,7 @@ export const TestScreen: React.FC = () => {
             </div>
 
             {/* Question Text */}
-            <h3 className="text-base sm:text-lg md:text-xl font-kor font-medium text-white leading-relaxed break-keep mb-4 sm:mb-5">
+            <h3 className="text-base sm:text-lg md:text-xl font-kor font-medium text-white leading-relaxed break-keep mb-3.5 sm:mb-4">
               {q.type === '듣기' && rawQuestionText.includes('점)') && !isExample ? (
                 <>
                   <span className="inline-block bg-slate-800 border border-slate-700 text-cyan-400 px-2 py-0.5 rounded-sm text-xs mr-1 font-tech tracking-widest align-middle">[AUDIO]</span> 
@@ -239,9 +239,9 @@ export const TestScreen: React.FC = () => {
 
             {/* Passage if exists */}
             {q.passage && q.passage.trim() && (
-              <div className="mb-4 sm:mb-6">
-                <div className={`p-3.5 sm:p-5 ${isExample ? 'bg-slate-800/80 border-slate-700 font-bold' : 'bg-slate-900/60 border-slate-800 font-medium'} rounded-sm border text-slate-200 text-sm sm:text-base md:text-lg whitespace-pre-wrap leading-relaxed font-kor`}>
-                  {isExample && <div className="w-fit bg-slate-700/80 text-cyan-300 text-[10px] font-tech tracking-widest px-2 py-0.5 rounded-sm mb-3 border border-slate-600">&lt; EXAMPLE &gt;</div>}
+              <div className="mb-3.5 sm:mb-5">
+                <div className={`p-3 sm:p-4.5 ${isExample ? 'bg-slate-800/80 border-slate-700 font-bold' : 'bg-slate-900/60 border-slate-800 font-medium'} rounded-sm border text-slate-200 text-sm sm:text-base md:text-lg whitespace-pre-wrap leading-relaxed font-kor shadow-inner`}>
+                  {isExample && <div className="w-fit bg-slate-700/80 text-cyan-300 text-[10px] font-tech tracking-widest px-2 py-0.5 rounded-sm mb-2.5 border border-slate-600">&lt; EXAMPLE &gt;</div>}
                   <span dangerouslySetInnerHTML={{ __html: q.passage.replace(/\n/g, '<br>') }} />
                 </div>
               </div>
@@ -249,10 +249,10 @@ export const TestScreen: React.FC = () => {
 
             {/* Image if exists */}
             {q.image && q.image.trim() && (
-              <div className="mb-4 sm:mb-6 rounded-sm overflow-hidden border border-slate-800 text-center bg-slate-900/60 p-2.5 sm:p-4">
+              <div className="mb-3.5 sm:mb-5 rounded-sm overflow-hidden border border-slate-800 text-center bg-slate-900/60 p-2 sm:p-3">
                 <img 
                   src={q.image} 
-                  className="max-h-[28vh] sm:max-h-[35vh] md:max-h-[40vh] object-contain mx-auto cursor-zoom-in hover:opacity-80 transition-opacity rounded" 
+                  className="max-h-[25vh] sm:max-h-[32vh] md:max-h-[38vh] object-contain mx-auto cursor-zoom-in hover:opacity-80 transition-opacity rounded" 
                   onClick={() => showZoomModal(q.image)} 
                   alt="Question Image" 
                 />
@@ -260,7 +260,7 @@ export const TestScreen: React.FC = () => {
             )}
 
             {/* Answer Options */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 sm:gap-4 font-kor mb-4 sm:mb-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 sm:gap-3.5 font-kor">
               {q.options.map((opt, i) => {
                 if(!opt || opt.trim() === '') return null;
                 const isChecked = answers[currentIdx] === i;
@@ -273,8 +273,8 @@ export const TestScreen: React.FC = () => {
                       checked={isChecked} 
                       onChange={() => handleOptionSelect(i)} 
                     />
-                    <div className="option-label p-2.5 sm:p-4 rounded-sm flex items-center min-h-[3.5rem] sm:min-h-[4.25rem]">
-                      <span className="opt-num w-7 h-7 sm:w-9 sm:h-9 flex items-center justify-center rounded-full mr-2.5 sm:mr-3 shrink-0 text-xs sm:text-base font-bold">
+                    <div className="option-label p-2.5 sm:p-3.5 rounded-sm flex items-center min-h-[3.25rem] sm:min-h-[3.75rem]">
+                      <span className="opt-num w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-full mr-2.5 sm:mr-3 shrink-0 text-xs sm:text-base font-bold">
                         {i+1}
                       </span>
                       {renderOptionContent(opt)}

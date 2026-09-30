@@ -50,10 +50,10 @@ export const MainScreen: React.FC<{ onOpenAdmin: () => void, onOpenQr: () => voi
 
         {/* Admin/QR Buttons */}
         <div className="absolute top-4 right-4 flex gap-1.5 z-20">
-          <button onClick={onOpenAdmin} className="hidden lg:flex px-2 py-1 border border-cyan-800/80 bg-slate-900/50 text-[9px] text-cyan-500 font-tech items-center gap-1 hover:bg-cyan-900/50 transition-colors rounded-sm tracking-widest">
+          <button onClick={onOpenAdmin} className="hidden md:flex px-2 py-1 border border-cyan-800/80 bg-slate-900/50 text-[9px] text-cyan-500 font-tech items-center gap-1 hover:bg-cyan-900/50 transition-colors rounded-sm tracking-widest">
             <LogIn className="w-3 h-3" /> SYS_ADMIN
           </button>
-          <button onClick={onOpenQr} className="px-2 py-1 border border-cyan-800/80 bg-slate-900/50 text-[9px] text-cyan-500 font-tech flex items-center gap-1 hover:bg-cyan-900/50 transition-colors rounded-sm tracking-widest">
+          <button onClick={onOpenQr} className="hidden md:flex px-2 py-1 border border-cyan-800/80 bg-slate-900/50 text-[9px] text-cyan-500 font-tech items-center gap-1 hover:bg-cyan-900/50 transition-colors rounded-sm tracking-widest">
             <QrCode className="w-3 h-3" /> QR_LINK
           </button>
         </div>
@@ -91,7 +91,7 @@ export const MainScreen: React.FC<{ onOpenAdmin: () => void, onOpenQr: () => voi
           </span>
         </div>
 
-        <p className="text-[10px] text-slate-400 font-tech tracking-widest mb-6">BUILD V40.DX_PRO</p>
+        <p onClick={onOpenAdmin} className="text-[10px] text-slate-400 font-tech tracking-widest mb-6 cursor-pointer select-none hover:text-cyan-400 transition-colors">BUILD V40.DX_PRO</p>
 
         {/* Action Buttons */}
         <div className="w-full max-w-sm space-y-3 mb-6">
