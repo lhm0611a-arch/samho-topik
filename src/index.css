@@ -26,10 +26,9 @@ html, body, #root {
   padding: 0;
   width: 100%;
   height: 100%;
+  height: 100dvh;
   min-width: 320px;
   overflow: hidden;
-  overscroll-behavior-y: none;
-  touch-action: pan-x pan-y;
 }
 
 /* Background gradient layered over body */

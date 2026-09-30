@@ -86,6 +86,16 @@ export default function App() {
         rc++; 
         copy.realIdx = rc;
       }
+      // Ensure options is always a valid 4-item array of strings
+      const rawOpts = Array.isArray(copy.options) 
+        ? copy.options 
+        : [copy.opt1, copy.opt2, copy.opt3, copy.opt4];
+      copy.options = [
+        rawOpts?.[0] != null ? String(rawOpts[0]) : '',
+        rawOpts?.[1] != null ? String(rawOpts[1]) : '',
+        rawOpts?.[2] != null ? String(rawOpts[2]) : '',
+        rawOpts?.[3] != null ? String(rawOpts[3]) : ''
+      ];
       return copy;
     });
   }, []);
@@ -180,7 +190,7 @@ export default function App() {
   }, [loadQuestionsForExam, setActiveExamName, setAvailableExams]);
 
   return (
-    <div className="app-bg relative flex flex-col h-full w-full overflow-hidden text-slate-200">
+    <div className="app-bg relative flex flex-col h-full h-[100dvh] w-full overflow-hidden text-slate-200">
       <div className="scanline" />
       
       {currentScreen !== 'main' && (
