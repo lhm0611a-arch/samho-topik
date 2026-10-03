@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { collection, getDocs, query, orderBy } from 'firebase/firestore';
+import { collection, getDocs, onSnapshot } from 'firebase/firestore';
 import { db, appId, exportResultsToCSV, deleteExamResult, updateExamResultCandidate, ensureAuth } from '../lib/firebase';
 import { GlassCard } from './ui';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell, LineChart, Line } from 'recharts';
-import { X, BarChart2, Users, Target, Search, Download, Trophy, ChevronDown, ChevronUp, Trash2, Edit3, CheckCircle2, AlertCircle, Save } from 'lucide-react';
+import { X, BarChart2, Users, Target, Search, Download, Trophy, ChevronDown, ChevronUp, Trash2, Edit3, CheckCircle2, AlertCircle, Save, RefreshCw } from 'lucide-react';
 
 interface ResultData {
   id: string;
@@ -26,6 +26,7 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
   const [sortField, setSortField] = useState<keyof ResultData>('timestamp');
   const [sortDesc, setSortDesc] = useState(true);
   const [selectedExam, setSelectedExam] = useState<string>('ALL');
+  const [activeView, setActiveView] = useState<'all' | 'table' | 'charts'>('all');
   
   // Examinee Editing State
   const [editingResult, setEditingResult] = useState<ResultData | null>(null);
@@ -37,45 +38,142 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
   });
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [toastMsg, setToastMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const getTimestampMs = (t: any): number => {
+    if (!t) return 0;
+    if (typeof t.toMillis === 'function') return t.toMillis();
+    if (typeof t.toDate === 'function') return t.toDate().getTime();
+    if (t.seconds) return t.seconds * 1000;
+    if (typeof t === 'string' || typeof t === 'number') {
+      const parsed = new Date(t).getTime();
+      return isNaN(parsed) ? 0 : parsed;
+    }
+    return 0;
+  };
+
+  const formatTimestamp = (t: any): string => {
+    if (!t) return 'N/A';
+    try {
+      if (typeof t.toDate === 'function') return t.toDate().toLocaleString('ko-KR');
+      if (t.seconds) return new Date(t.seconds * 1000).toLocaleString('ko-KR');
+      const d = new Date(t);
+      if (!isNaN(d.getTime())) return d.toLocaleString('ko-KR');
+    } catch (e) {
+      // ignore
+    }
+    return 'N/A';
+  };
 
   useEffect(() => {
-    const fetchData = async () => {
+    let unsubscribe: (() => void) | null = null;
+    let isMounted = true;
+    setLoading(true);
+    setFetchError(null);
+
+    const parseDoc = (docSnap: any): ResultData => {
+      const d = (docSnap.data && docSnap.data()) || {};
+      return {
+        id: docSnap.id,
+        examName: (d.examName || d.exam || '모의고사').toString(),
+        registrationNo: (d.registrationNo || d.regNo || 'N/A').toString(),
+        studentName: (d.studentName || d.name || '미입력').toString(),
+        company: d.company || d.organization || '-',
+        score: typeof d.score === 'number' ? d.score : (parseInt(d.score, 10) || 0),
+        lcScore: typeof d.lcScore === 'number' ? d.lcScore : (parseInt(d.lcScore, 10) || 0),
+        rcScore: typeof d.rcScore === 'number' ? d.rcScore : (parseInt(d.rcScore, 10) || 0),
+        correctCount: typeof d.correctCount === 'number' ? d.correctCount : (parseInt(d.correctCount, 10) || 0),
+        totalQuestions: typeof d.totalQuestions === 'number' ? d.totalQuestions : (parseInt(d.totalQuestions, 10) || 70),
+        timestamp: d.timestamp || d.createdAt || null
+      };
+    };
+
+    const loadData = async () => {
       try {
-        await ensureAuth();
-        const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'exam_results'), orderBy('timestamp', 'desc'));
-        const querySnapshot = await getDocs(q);
-        const data: ResultData[] = [];
-        querySnapshot.forEach((doc) => {
-          data.push({ id: doc.id, ...doc.data() } as ResultData);
+        ensureAuth();
+        const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'exam_results');
+
+        // 1. Direct immediate fetch to populate list instantly
+        try {
+          const directSnap = await getDocs(colRef);
+          if (isMounted && directSnap.size > 0) {
+            const list: ResultData[] = [];
+            directSnap.forEach(d => list.push(parseDoc(d)));
+            setResults(list);
+            setLoading(false);
+          }
+        } catch (directErr) {
+          console.warn("Direct getDocs fetch notice:", directErr);
+        }
+
+        // 2. Real-time synchronization
+        unsubscribe = onSnapshot(colRef, (snapshot) => {
+          if (!isMounted) return;
+          const data: ResultData[] = [];
+          snapshot.forEach((docSnap) => {
+            data.push(parseDoc(docSnap));
+          });
+          setResults(data);
+          setLoading(false);
+          setFetchError(null);
+        }, (err) => {
+          console.error("onSnapshot error:", err);
+          if (isMounted) {
+            // Keep existing results if already fetched via getDocs
+            setFetchError(err.message || "실시간 동기화 오류 발생");
+            setLoading(false);
+          }
         });
-        setResults(data);
-      } catch (e) {
-        console.error("Failed to fetch analytics:", e);
-      } finally {
-        setLoading(false);
+      } catch (e: any) {
+        console.error("Firestore initialization error:", e);
+        if (isMounted) {
+          setFetchError(e.message || "데이터 불러오기 실패");
+          setLoading(false);
+        }
       }
     };
-    fetchData();
-  }, []);
 
-  const uniqueExams = Array.from(new Set(results.map(r => r.examName)));
+    loadData();
+
+    return () => {
+      isMounted = false;
+      if (typeof unsubscribe === 'function') {
+        unsubscribe();
+      }
+    };
+  }, [refreshKey]);
+
+  const uniqueExams = Array.from(new Set(results.map(r => r.examName).filter(Boolean)));
   const filteredExams = selectedExam === 'ALL' ? results : results.filter(r => r.examName === selectedExam);
   
-  const searchedResults = filteredExams.filter(r => 
-    r.studentName.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    r.registrationNo.toLowerCase().includes(searchTerm.toLowerCase())
-  ).sort((a, b) => {
-    let valA = a[sortField];
-    let valB = b[sortField];
+  const searchedResults = filteredExams.filter(r => {
+    const term = (searchTerm || '').toLowerCase().trim();
+    if (!term) return true;
+    const sName = (r.studentName || '').toLowerCase();
+    const rNo = (r.registrationNo || '').toLowerCase();
+    const comp = (r.company || '').toLowerCase();
+    const ex = (r.examName || '').toLowerCase();
+    return sName.includes(term) || rNo.includes(term) || comp.includes(term) || ex.includes(term);
+  }).sort((a, b) => {
+    let valA: any = a[sortField];
+    let valB: any = b[sortField];
     
     if (sortField === 'timestamp') {
-      valA = a.timestamp?.toMillis() || 0;
-      valB = b.timestamp?.toMillis() || 0;
+      const ta = getTimestampMs(a.timestamp);
+      const tb = getTimestampMs(b.timestamp);
+      return sortDesc ? tb - ta : ta - tb;
+    }
+
+    if (typeof valA === 'string' || typeof valB === 'string') {
+      const strA = (valA || '').toString();
+      const strB = (valB || '').toString();
+      return sortDesc ? strB.localeCompare(strA, 'ko-KR') : strA.localeCompare(strB, 'ko-KR');
     }
     
-    if (valA < valB) return sortDesc ? 1 : -1;
-    if (valA > valB) return sortDesc ? -1 : 1;
-    return 0;
+    const numA = Number(valA ?? 0);
+    const numB = Number(valB ?? 0);
+    return sortDesc ? numB - numA : numA - numB;
   });
 
   const totalCandidates = filteredExams.length;
@@ -204,8 +302,8 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
 
   // Prepare performance trend data (chronological)
   const chronologicalResults = [...filteredExams].sort((a, b) => {
-    const ta = a.timestamp?.toMillis() || 0;
-    const tb = b.timestamp?.toMillis() || 0;
+    const ta = getTimestampMs(a.timestamp);
+    const tb = getTimestampMs(b.timestamp);
     return ta - tb; // Oldest to newest
   }).slice(-30); // Last 30 exams
 
@@ -219,15 +317,29 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
               <BarChart2 size={20} />
             </div>
             <div>
-              <h2 className="font-tech font-bold text-white text-lg tracking-widest flex items-center gap-2">
-                ANALYTICS DASHBOARD
-              </h2>
-              <p className="text-[10px] text-indigo-500 font-tech tracking-widest uppercase">Score Analysis & Statistics</p>
+              <div className="flex items-center gap-2">
+                <h2 className="font-tech font-bold text-white text-lg tracking-widest flex items-center gap-2">
+                  ANALYTICS DASHBOARD
+                </h2>
+                <span className="hidden sm:inline-flex items-center gap-1.5 text-[10px] font-kor px-2 py-0.5 rounded bg-cyan-950/80 border border-cyan-700/60 text-cyan-300">
+                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+                  총 {results.length}건 실시간 연동
+                </span>
+              </div>
+              <p className="text-[10px] text-indigo-400 font-tech tracking-widest uppercase">Score Analysis & Examinee Directory</p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <button onClick={() => exportResultsToCSV()} className="flex items-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-sm text-xs font-tech tracking-widest transition-colors">
-              <Download size={14} /> EXPORT CSV
+          <div className="flex items-center gap-2 sm:gap-3">
+            <button 
+              onClick={() => setRefreshKey(k => k + 1)} 
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-2 bg-slate-800 hover:bg-slate-700 text-cyan-400 border border-slate-700 rounded-sm text-xs font-tech tracking-widest transition-colors"
+              title="데이터 새로고침"
+            >
+              <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
+              <span className="hidden sm:inline">REFRESH</span>
+            </button>
+            <button onClick={() => exportResultsToCSV()} className="flex items-center gap-2 px-2.5 sm:px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-sm text-xs font-tech tracking-widest transition-colors">
+              <Download size={14} /> <span className="hidden sm:inline">EXPORT</span> CSV
             </button>
             <button onClick={onClose} className="w-10 h-10 flex items-center justify-center rounded-sm bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white border border-slate-700 transition-colors">
               <X size={20} />
@@ -236,125 +348,198 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
         </div>
 
         <div className="flex-1 overflow-y-auto bg-slate-950 p-4 md:p-6 flex flex-col gap-6 no-scrollbar">
-          {loading ? (
-            <div className="flex-1 flex items-center justify-center">
-              <div className="text-cyan-500 font-tech tracking-widest animate-pulse">LOADING ANALYTICS DATA...</div>
+          {fetchError && (
+            <div className="bg-red-950/80 border border-red-800 text-red-200 px-4 py-3 rounded-sm text-xs flex justify-between items-center font-kor">
+              <div className="flex items-center gap-2">
+                <AlertCircle size={16} className="text-red-400 shrink-0" />
+                <span>데이터 동기화 알림: {fetchError}</span>
+              </div>
+              <button 
+                onClick={() => setRefreshKey(k => k + 1)} 
+                className="px-2.5 py-1 bg-red-900/60 hover:bg-red-800 text-white rounded text-xs border border-red-700"
+              >
+                다시 시도
+              </button>
+            </div>
+          )}
+
+          {loading && results.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center py-20 gap-3">
+              <div className="text-cyan-500 font-tech tracking-widest animate-pulse flex items-center gap-2">
+                <RefreshCw size={16} className="animate-spin" /> LOADING ANALYTICS DATA...
+              </div>
+              <p className="text-xs text-slate-500 font-kor">파이어베이스 누적 성적 데이터를 실시간으로 불러오는 중입니다.</p>
             </div>
           ) : (
             <>
-              {/* Controls */}
-              <div className="flex flex-col md:flex-row gap-4 items-end">
-                <div className="flex-1 w-full relative">
-                  <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
-                    <Search size={14} className="text-slate-500" />
-                  </div>
-                  <input 
-                    type="text" 
-                    placeholder="Search by name or registration number..." 
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-sm py-2 pl-9 pr-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 font-kor"
-                  />
-                </div>
-                <div className="w-full md:w-64">
-                  <label className="block text-[10px] text-slate-400 font-tech tracking-widest mb-1">FILTER BY EXAM</label>
-                  <select 
-                    value={selectedExam} 
-                    onChange={(e) => setSelectedExam(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-sm py-2 px-3 text-sm text-white focus:outline-none focus:border-cyan-500 font-kor"
+              {/* Top View Mode Switcher & Controls */}
+              <div className="flex flex-col lg:flex-row gap-4 items-stretch lg:items-end justify-between">
+                {/* View Switcher Tabs */}
+                <div className="flex items-center bg-slate-900 border border-slate-800 p-1 rounded-sm gap-1 self-start">
+                  <button
+                    onClick={() => setActiveView('all')}
+                    className={`px-3 py-1.5 rounded-sm text-xs font-kor font-medium transition-colors ${activeView === 'all' ? 'bg-cyan-950 border border-cyan-800 text-cyan-300' : 'text-slate-400 hover:text-white'}`}
                   >
-                    <option value="ALL">ALL EXAMS</option>
-                    {uniqueExams.map(ex => (
-                      <option key={ex} value={ex}>{ex}</option>
-                    ))}
-                  </select>
+                    📑 전체 종합
+                  </button>
+                  <button
+                    onClick={() => setActiveView('table')}
+                    className={`px-3 py-1.5 rounded-sm text-xs font-kor font-medium transition-colors flex items-center gap-1.5 ${activeView === 'table' ? 'bg-cyan-950 border border-cyan-800 text-cyan-300' : 'text-slate-400 hover:text-white'}`}
+                  >
+                    📋 응시자 명단 ({searchedResults.length}명)
+                  </button>
+                  <button
+                    onClick={() => setActiveView('charts')}
+                    className={`px-3 py-1.5 rounded-sm text-xs font-kor font-medium transition-colors ${activeView === 'charts' ? 'bg-cyan-950 border border-cyan-800 text-cyan-300' : 'text-slate-400 hover:text-white'}`}
+                  >
+                    📊 통계 차트
+                  </button>
                 </div>
-              </div>
 
-              {/* Top Stats */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-slate-900/60 border border-slate-800 p-4 sm:p-5 rounded-sm">
-                  <div className="flex items-center gap-2 text-slate-400 mb-2">
-                    <Users size={16} /> <span className="font-tech text-[10px] tracking-widest">TOTAL CANDIDATES</span>
+                {/* Search & Exam Select */}
+                <div className="flex flex-col sm:flex-row gap-3 flex-1 lg:max-w-xl">
+                  <div className="flex-1 relative">
+                    <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
+                      <Search size={14} className="text-slate-500" />
+                    </div>
+                    <input 
+                      type="text" 
+                      placeholder="이름, 수험번호, 업체명 검색..." 
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-sm py-2 pl-9 pr-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 font-kor"
+                    />
                   </div>
-                  <div className="text-3xl font-tech font-bold text-white">{totalCandidates}</div>
-                </div>
-                <div className="bg-slate-900/60 border border-slate-800 p-4 sm:p-5 rounded-sm">
-                  <div className="flex items-center gap-2 text-cyan-400 mb-2">
-                    <Target size={16} /> <span className="font-tech text-[10px] tracking-widest">AVERAGE SCORE</span>
-                  </div>
-                  <div className="text-3xl font-tech font-bold text-cyan-400">{avgScore} <span className="text-sm text-slate-500">PT</span></div>
-                </div>
-                <div className="bg-slate-900/60 border border-slate-800 p-4 sm:p-5 rounded-sm">
-                  <div className="flex items-center gap-2 text-amber-400 mb-2">
-                    <Trophy size={16} /> <span className="font-tech text-[10px] tracking-widest">HIGHEST SCORE</span>
-                  </div>
-                  <div className="text-3xl font-tech font-bold text-amber-400">{maxScore} <span className="text-sm text-slate-500">PT</span></div>
-                </div>
-                <div className="bg-slate-900/60 border border-slate-800 p-4 sm:p-5 rounded-sm flex flex-col justify-center">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="font-tech text-[10px] tracking-widest text-slate-400">AVG LISTENING</span>
-                    <span className="font-tech text-white font-bold">{avgLc}</span>
-                  </div>
-                  <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mb-4">
-                    <div className="bg-cyan-500 h-full" style={{ width: `${Math.min(100, (avgLc/100)*100)}%`}}></div>
-                  </div>
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="font-tech text-[10px] tracking-widest text-slate-400">AVG READING</span>
-                    <span className="font-tech text-white font-bold">{avgRc}</span>
-                  </div>
-                  <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                    <div className="bg-indigo-500 h-full" style={{ width: `${Math.min(100, (avgRc/100)*100)}%`}}></div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Charts area */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 h-64 md:h-80">
-                <div className="bg-slate-900/60 border border-slate-800 rounded-sm p-4 flex flex-col">
-                  <h3 className="font-tech text-xs tracking-widest text-slate-400 mb-4">SCORE DISTRIBUTION</h3>
-                  <div className="flex-1">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={scoreRanges} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                        <XAxis dataKey="name" stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} />
-                        <YAxis stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} allowDecimals={false} />
-                        <Tooltip 
-                          cursor={{fill: '#1e293b'}} 
-                          contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '4px', fontSize: '12px', color: '#fff' }} 
-                        />
-                        <Bar dataKey="count" fill="#0ea5e9" radius={[4, 4, 0, 0]}>
-                          {scoreRanges.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={entry.count > 0 ? '#22d3ee' : '#0ea5e9'} />
-                          ))}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-                
-                <div className="bg-slate-900/60 border border-slate-800 rounded-sm p-4 flex flex-col">
-                  <h3 className="font-tech text-xs tracking-widest text-slate-400 mb-4">RECENT PERFORMANCES</h3>
-                  <div className="flex-1">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={chronologicalResults} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                        <XAxis dataKey="studentName" stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => val.substring(0, 3) + '..'} />
-                        <YAxis stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} />
-                        <Tooltip 
-                          contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '4px', fontSize: '12px', color: '#fff' }} 
-                        />
-                        <Line type="monotone" dataKey="score" stroke="#10b981" strokeWidth={2} dot={{ r: 3, fill: '#10b981' }} activeDot={{ r: 5 }} />
-                        <Line type="monotone" dataKey="lcScore" stroke="#0ea5e9" strokeWidth={1} strokeDasharray="3 3" dot={false} />
-                        <Line type="monotone" dataKey="rcScore" stroke="#8b5cf6" strokeWidth={1} strokeDasharray="3 3" dot={false} />
-                      </LineChart>
-                    </ResponsiveContainer>
+                  <div className="w-full sm:w-56">
+                    <select 
+                      value={selectedExam} 
+                      onChange={(e) => setSelectedExam(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-sm py-2 px-3 text-sm text-white focus:outline-none focus:border-cyan-500 font-kor"
+                    >
+                      <option value="ALL">전체 시험 ({results.length}건)</option>
+                      {uniqueExams.map(ex => {
+                        const cnt = results.filter(r => r.examName === ex).length;
+                        return (
+                          <option key={ex} value={ex}>{ex} ({cnt}건)</option>
+                        );
+                      })}
+                    </select>
                   </div>
                 </div>
               </div>
 
-              {/* Data Table */}
-              <div className="bg-slate-900/60 border border-slate-800 rounded-sm overflow-hidden flex flex-col">
+              {/* Top Stats - Shown in 'all' or 'charts' */}
+              {(activeView === 'all' || activeView === 'charts') && (
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="bg-slate-900/60 border border-slate-800 p-4 sm:p-5 rounded-sm">
+                    <div className="flex items-center gap-2 text-slate-400 mb-2">
+                      <Users size={16} /> <span className="font-tech text-[10px] tracking-widest">TOTAL CANDIDATES</span>
+                    </div>
+                    <div className="text-3xl font-tech font-bold text-white">{totalCandidates}</div>
+                  </div>
+                  <div className="bg-slate-900/60 border border-slate-800 p-4 sm:p-5 rounded-sm">
+                    <div className="flex items-center gap-2 text-cyan-400 mb-2">
+                      <Target size={16} /> <span className="font-tech text-[10px] tracking-widest">AVERAGE SCORE</span>
+                    </div>
+                    <div className="text-3xl font-tech font-bold text-cyan-400">{avgScore} <span className="text-sm text-slate-500">PT</span></div>
+                  </div>
+                  <div className="bg-slate-900/60 border border-slate-800 p-4 sm:p-5 rounded-sm">
+                    <div className="flex items-center gap-2 text-amber-400 mb-2">
+                      <Trophy size={16} /> <span className="font-tech text-[10px] tracking-widest">HIGHEST SCORE</span>
+                    </div>
+                    <div className="text-3xl font-tech font-bold text-amber-400">{maxScore} <span className="text-sm text-slate-500">PT</span></div>
+                  </div>
+                  <div className="bg-slate-900/60 border border-slate-800 p-4 sm:p-5 rounded-sm flex flex-col justify-center">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="font-tech text-[10px] tracking-widest text-slate-400">AVG LISTENING</span>
+                      <span className="font-tech text-white font-bold">{avgLc}</span>
+                    </div>
+                    <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mb-4">
+                      <div className="bg-cyan-500 h-full" style={{ width: `${Math.min(100, (avgLc/100)*100)}%`}}></div>
+                    </div>
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="font-tech text-[10px] tracking-widest text-slate-400">AVG READING</span>
+                      <span className="font-tech text-white font-bold">{avgRc}</span>
+                    </div>
+                    <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                      <div className="bg-indigo-500 h-full" style={{ width: `${Math.min(100, (avgRc/100)*100)}%`}}></div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Charts area - Shown in 'all' or 'charts' */}
+              {(activeView === 'all' || activeView === 'charts') && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 h-64 md:h-80">
+                  <div className="bg-slate-900/60 border border-slate-800 rounded-sm p-4 flex flex-col">
+                    <h3 className="font-tech text-xs tracking-widest text-slate-400 mb-4">SCORE DISTRIBUTION</h3>
+                    <div className="flex-1 min-h-0">
+                      <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                        <BarChart data={scoreRanges} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                          <XAxis dataKey="name" stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} />
+                          <YAxis stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} allowDecimals={false} />
+                          <Tooltip 
+                            cursor={{fill: '#1e293b'}} 
+                            contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '4px', fontSize: '12px', color: '#fff' }} 
+                          />
+                          <Bar dataKey="count" fill="#0ea5e9" radius={[4, 4, 0, 0]}>
+                            {scoreRanges.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={entry.count > 0 ? '#22d3ee' : '#0ea5e9'} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                  
+                  <div className="bg-slate-900/60 border border-slate-800 rounded-sm p-4 flex flex-col">
+                    <h3 className="font-tech text-xs tracking-widest text-slate-400 mb-4">RECENT PERFORMANCES</h3>
+                    <div className="flex-1 min-h-0">
+                      <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                        <LineChart data={chronologicalResults} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                          <XAxis 
+                            dataKey="studentName" 
+                            stroke="#64748b" 
+                            fontSize={10} 
+                            tickLine={false} 
+                            axisLine={false} 
+                            tickFormatter={(val) => (typeof val === 'string' && val.length > 3 ? val.substring(0, 3) + '..' : (val ? String(val) : ''))} 
+                          />
+                          <YAxis stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} />
+                          <Tooltip 
+                            contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '4px', fontSize: '12px', color: '#fff' }} 
+                          />
+                          <Line type="monotone" dataKey="score" stroke="#10b981" strokeWidth={2} dot={{ r: 3, fill: '#10b981' }} activeDot={{ r: 5 }} />
+                          <Line type="monotone" dataKey="lcScore" stroke="#0ea5e9" strokeWidth={1} strokeDasharray="3 3" dot={false} />
+                          <Line type="monotone" dataKey="rcScore" stroke="#8b5cf6" strokeWidth={1} strokeDasharray="3 3" dot={false} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Data Table - Shown in 'all' or 'table' */}
+              {(activeView === 'all' || activeView === 'table') && (
+                <div className="bg-slate-900/60 border border-slate-800 rounded-sm overflow-hidden flex flex-col">
+                  <div className="px-4 py-3 bg-slate-900/90 border-b border-slate-800 flex justify-between items-center">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-tech tracking-widest text-cyan-400 font-bold">CANDIDATE DIRECTORY</span>
+                      <span className="text-[11px] font-kor text-slate-400">
+                        (조회 결과: <strong className="text-white">{searchedResults.length}</strong>명 / 전체 {results.length}명)
+                      </span>
+                    </div>
+                    {searchTerm && (
+                      <button 
+                        onClick={() => setSearchTerm('')} 
+                        className="text-[11px] font-kor text-cyan-400 hover:text-cyan-200 underline"
+                      >
+                        검색 초기화
+                      </button>
+                    )}
+                  </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-sm font-kor text-slate-300 whitespace-nowrap">
                     <thead className="bg-slate-950/80 font-tech text-[10px] tracking-widest text-slate-400 border-b border-slate-800">
@@ -389,8 +574,8 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
                     <tbody className="divide-y divide-slate-800/50">
                       {searchedResults.map(r => (
                         <tr key={r.id} className="hover:bg-slate-800/30 transition-colors">
-                          <td className="px-4 py-3 font-tech text-xs text-slate-500">
-                            {r.timestamp?.toDate ? r.timestamp.toDate().toLocaleString() : 'N/A'}
+                          <td className="px-4 py-3 font-tech text-xs text-slate-400">
+                            {formatTimestamp(r.timestamp)}
                           </td>
                           <td className="px-4 py-3 text-xs">{r.examName}</td>
                           <td className="px-4 py-3 text-xs">{r.company || '-'}</td>
@@ -423,8 +608,20 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
                       ))}
                       {searchedResults.length === 0 && (
                         <tr>
-                          <td colSpan={9} className="px-4 py-10 text-center text-slate-500 font-tech tracking-widest">
-                            NO RECORDS FOUND
+                          <td colSpan={9} className="px-4 py-12 text-center text-slate-400 font-tech">
+                            <div className="flex flex-col items-center justify-center gap-2">
+                              <span className="text-base tracking-widest text-slate-400">NO RECORDS FOUND</span>
+                              <span className="text-xs text-slate-500 font-kor">
+                                {results.length === 0 ? "등록된 응시 결과가 없습니다." : `검색 조건에 맞는 데이터가 없습니다. (전체 ${results.length}명)`}
+                              </span>
+                              <button 
+                                onClick={() => { setSearchTerm(''); setSelectedExam('ALL'); setRefreshKey(k => k + 1); }} 
+                                className="mt-2 px-3 py-1.5 bg-cyan-950/70 hover:bg-cyan-900 border border-cyan-800 text-cyan-400 rounded text-xs font-kor flex items-center gap-1.5 transition-colors"
+                              >
+                                <RefreshCw size={12} />
+                                <span>필터 초기화 및 새로고침</span>
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       )}
@@ -432,6 +629,7 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
                   </table>
                 </div>
               </div>
+              )}
             </>
           )}
         </div>
@@ -478,7 +676,7 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
                     <span className="font-tech text-cyan-400 font-bold">{editingResult.score} PT (LC: {editingResult.lcScore} / RC: {editingResult.rcScore})</span>
                   </div>
                   <div className="text-slate-500 font-tech text-[11px]">
-                    {editingResult.timestamp?.toDate ? editingResult.timestamp.toDate().toLocaleString('ko-KR') : ''}
+                    {formatTimestamp(editingResult.timestamp)}
                   </div>
                 </div>
 

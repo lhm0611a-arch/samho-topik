@@ -213,12 +213,30 @@ export async function getExamQuestionsFromFirestore(examName: string): Promise<Q
 
 // ----------------- Live Session & Results -----------------
 
-export async function updateLiveSession(regNo: string, name: string, examName: string, status: 'WAITING' | 'TESTING' | 'SUBMITTED', answered: number, total: number, score?: number) {
+export async function updateLiveSession(
+  regNo: string, 
+  name: string, 
+  examName: string, 
+  status: 'WAITING' | 'TESTING' | 'SUBMITTED', 
+  answered: number, 
+  total: number, 
+  score?: number,
+  company?: string
+) {
   try {
     await ensureAuth();
     const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'active_sessions', regNo);
+    const cleanCompany = (company || '').trim();
     await setDoc(docRef, {
-      regNo, name, examName, status, answered, total, score: score ?? null, lastUpdate: serverTimestamp()
+      regNo, 
+      name, 
+      examName, 
+      status, 
+      answered, 
+      total, 
+      score: score ?? null, 
+      ...(cleanCompany ? { company: cleanCompany } : {}),
+      lastUpdate: serverTimestamp()
     }, { merge: true });
   } catch (e) {
     console.error("Live session update failed:", e);
@@ -238,13 +256,14 @@ export async function deleteLiveSession(regNo: string): Promise<boolean> {
 
 export async function updateLiveSessionCandidate(
   oldRegNo: string,
-  data: { regNo: string; name: string; examName?: string }
+  data: { regNo: string; name: string; company?: string; examName?: string }
 ): Promise<boolean> {
   try {
     await ensureAuth();
     const cleanOld = (oldRegNo || '').trim();
     const cleanNew = (data.regNo || '').trim();
     const cleanName = (data.name || '').trim();
+    const cleanCompany = (data.company || '').trim();
     const cleanExam = data.examName ? data.examName.trim() : undefined;
 
     if (!cleanNew || !cleanName) {
@@ -259,6 +278,7 @@ export async function updateLiveSessionCandidate(
       ...existing,
       regNo: cleanNew,
       name: cleanName,
+      company: cleanCompany || existing.company || '',
       ...(cleanExam ? { examName: cleanExam } : {}),
       lastUpdate: serverTimestamp()
     };
@@ -271,6 +291,7 @@ export async function updateLiveSessionCandidate(
     } else {
       await updateDoc(oldDocRef, {
         name: cleanName,
+        company: cleanCompany || existing.company || '',
         ...(cleanExam ? { examName: cleanExam } : {}),
         lastUpdate: serverTimestamp()
       });

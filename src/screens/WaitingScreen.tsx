@@ -13,7 +13,7 @@ export const WaitingScreen: React.FC = () => {
 
   useEffect(() => {
     if (candidate) {
-      updateLiveSession(candidate.regNo, candidate.name, activeExamName, 'WAITING', 0, realQuestionsCount);
+      updateLiveSession(candidate.regNo, candidate.name, activeExamName, 'WAITING', 0, realQuestionsCount, undefined, candidate.company);
     }
   }, [candidate, activeExamName, realQuestionsCount]);
 

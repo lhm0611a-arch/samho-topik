@@ -17,7 +17,7 @@ export const ResultScreen: React.FC = () => {
 
   useEffect(() => {
     if (result) {
-      updateLiveSession(result.registrationNo, result.studentName, result.examName, 'SUBMITTED', result.correctCount, result.totalQuestions, result.score);
+      updateLiveSession(result.registrationNo, result.studentName, result.examName, 'SUBMITTED', result.correctCount, result.totalQuestions, result.score, result.company);
     }
   }, [result]);
 

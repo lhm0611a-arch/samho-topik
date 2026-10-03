@@ -93,7 +93,7 @@ export const TestScreen: React.FC = () => {
 
   useEffect(() => {
     if (candidate) {
-      updateLiveSession(candidate.regNo, candidate.name, activeExamName, 'TESTING', answeredCount, realQuestionsCount);
+      updateLiveSession(candidate.regNo, candidate.name, activeExamName, 'TESTING', answeredCount, realQuestionsCount, undefined, candidate.company);
     }
   }, [candidate, activeExamName, answeredCount, realQuestionsCount]);
 
