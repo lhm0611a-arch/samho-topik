@@ -102,7 +102,8 @@ export const AdminScreen: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
       if (qs && qs.length > 0) {
         setJsonResult(JSON.stringify(qs, null, 2));
-        writeLog(`'${selectedSaveExam}' 슬롯에서 ${qs.length}개 문항을 성공적으로 불러왔습니다. [PREVIEW / EDIT]에서 편집 가능합니다.`, "success");
+        const realCount = qs.filter((x: any) => x.num !== '예시' && x.num !== '보기').length;
+        writeLog(`'${selectedSaveExam}' 슬롯에서 총 ${realCount}문항 (예시 포함 ${qs.length}개)을 성공적으로 불러왔습니다. [PREVIEW / EDIT]에서 편집 가능합니다.`, "success");
       } else {
         writeLog(`'${selectedSaveExam}' 슬롯에 저장된 문항이 없습니다. PDF 스캔 후 저장해주세요.`, "warning");
         setJsonResult(JSON.stringify([], null, 2));
@@ -235,8 +236,9 @@ export const AdminScreen: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
       const ok = await saveExamQuestionsToFirestore(selectedSaveExam, formattedQs);
       if (ok) {
-        writeLog(`'${selectedSaveExam}' 슬롯에 ${formattedQs.length}문항 저장 완료! 응시자 화면에 즉각 반영됩니다.`, "success");
-        alert(`'${selectedSaveExam}' 슬롯에 ${formattedQs.length}문항이 저장되었습니다!\n모든 응시자 화면에 즉각 반영됩니다.`);
+        const realCount = formattedQs.filter(x => x.num !== '예시' && x.num !== '보기').length;
+        writeLog(`'${selectedSaveExam}' 슬롯에 총 ${realCount}문항 (예시 포함 ${formattedQs.length}개) 저장 완료! 응시자 화면에 즉각 반영됩니다.`, "success");
+        alert(`'${selectedSaveExam}' 슬롯에 총 ${realCount}문항 (예시 포함 ${formattedQs.length}개)이 저장되었습니다!\n모든 응시자 화면에 즉각 반영됩니다.`);
         if (selectedSaveExam === activeExamName) {
           useExamStore.getState().setQuestions(formattedQs);
         }
@@ -286,11 +288,17 @@ export const AdminScreen: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           
           <div className="bg-slate-900/70 p-5 rounded-sm border border-slate-800 shadow-sm backdrop-blur-sm">
             <div className="flex flex-col md:flex-row gap-4 items-stretch mb-6">
-              <PremiumButton onClick={() => setShowLiveMonitor(true)} className="flex-1 py-4 text-sm font-tech tracking-widest flex items-center justify-center gap-2">
-                <Activity size={18} /> LIVE DASHBOARD
+              <PremiumButton onClick={() => setShowLiveMonitor(true)} className="flex-1 py-4 text-sm font-tech tracking-widest flex flex-col items-center justify-center gap-1">
+                <div className="flex items-center gap-2">
+                  <Activity size={18} /> REAL-TIME MONITOR
+                </div>
+                <span className="text-[10px] font-kor text-cyan-300/80 font-normal tracking-normal">실시간 응시 현황 및 응시자 정보 수정</span>
               </PremiumButton>
-              <PremiumButton onClick={() => setShowAnalytics(true)} className="flex-1 py-4 text-sm font-tech tracking-widest flex items-center justify-center gap-2 border-indigo-500/50 hover:bg-indigo-900/30 text-indigo-400">
-                <BarChart2 size={18} /> SCORE ANALYTICS
+              <PremiumButton onClick={() => setShowAnalytics(true)} className="flex-1 py-4 text-sm font-tech tracking-widest flex flex-col items-center justify-center gap-1 border-indigo-500/50 hover:bg-indigo-900/30 text-indigo-400">
+                <div className="flex items-center gap-2">
+                  <BarChart2 size={18} /> ANALYTICS DASHBOARD
+                </div>
+                <span className="text-[10px] font-kor text-indigo-300/80 font-normal tracking-normal">성적 통계 분석 및 응시자 정보 직접 수정</span>
               </PremiumButton>
             </div>
             <div className="bg-indigo-900/20 p-4 rounded-sm border border-indigo-500/30 mb-4">

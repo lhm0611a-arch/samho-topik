@@ -48,6 +48,10 @@ export default function App() {
 
   const t = getTranslation(selectedLang);
 
+  const currentQ = questions && questions.length > 0 && currentIdx < questions.length ? questions[currentIdx] : null;
+  const isCurrentExample = currentQ ? (currentQ.num === '예시' || currentQ.num === '보기') : false;
+  const realQuestionsCount = questions ? questions.filter(x => x.num !== '예시' && x.num !== '보기').length : 0;
+
   // Handle URL query parameters (e.g. from QR re-entry) & session sanitization
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -222,8 +226,14 @@ export default function App() {
                 <ChevronLeft size={14} />
                 <span>{t.prevBtn}</span>
               </button>
-              <div className="px-2.5 py-1 bg-black/60 rounded border border-cyan-900/50 font-tech text-xs sm:text-sm text-cyan-400 shrink-0 whitespace-nowrap">
-                Q{currentIdx + 1} / {questions.length}
+              <div className="px-2.5 py-1 bg-black/60 rounded border border-cyan-900/50 font-tech text-xs sm:text-sm shrink-0 whitespace-nowrap flex items-center gap-1">
+                {isCurrentExample ? (
+                  <span className="text-[#00b050] font-kor font-bold">[예시]</span>
+                ) : (
+                  <span className="text-cyan-400 font-tech font-bold">Q{currentQ?.realIdx ?? (currentIdx + 1)}</span>
+                )}
+                <span className="text-slate-500 font-tech">/</span>
+                <span className="text-slate-300 font-tech">{realQuestionsCount}</span>
               </div>
               <button 
                 onClick={nextQuestion}

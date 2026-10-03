@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { collection, getDocs, query, orderBy } from 'firebase/firestore';
-import { db, appId, exportResultsToCSV, deleteExamResult, ensureAuth } from '../lib/firebase';
+import { db, appId, exportResultsToCSV, deleteExamResult, updateExamResultCandidate, ensureAuth } from '../lib/firebase';
 import { GlassCard } from './ui';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell, LineChart, Line } from 'recharts';
-import { X, BarChart2, Users, Target, Search, Download, Trophy, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
+import { X, BarChart2, Users, Target, Search, Download, Trophy, ChevronDown, ChevronUp, Trash2, Edit3, CheckCircle2, AlertCircle, Save } from 'lucide-react';
 
 interface ResultData {
   id: string;
@@ -26,6 +26,17 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
   const [sortField, setSortField] = useState<keyof ResultData>('timestamp');
   const [sortDesc, setSortDesc] = useState(true);
   const [selectedExam, setSelectedExam] = useState<string>('ALL');
+  
+  // Examinee Editing State
+  const [editingResult, setEditingResult] = useState<ResultData | null>(null);
+  const [editForm, setEditForm] = useState({
+    studentName: '',
+    registrationNo: '',
+    company: '',
+    examName: ''
+  });
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [toastMsg, setToastMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -115,12 +126,72 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
     return sortDesc ? <ChevronDown size={12} className="inline ml-1 text-cyan-400" /> : <ChevronUp size={12} className="inline ml-1 text-cyan-400" />;
   };
 
+  const handleOpenEdit = (record: ResultData) => {
+    setEditingResult(record);
+    setEditForm({
+      studentName: record.studentName || '',
+      registrationNo: record.registrationNo || '',
+      company: record.company || '',
+      examName: record.examName || ''
+    });
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingResult) return;
+    const cleanName = editForm.studentName.trim();
+    const cleanReg = editForm.registrationNo.trim();
+    const cleanCompany = editForm.company.trim();
+    const cleanExam = editForm.examName.trim();
+
+    if (!cleanName || !cleanReg) {
+      alert("성명과 수험번호는 필수 입력 항목입니다. (Name and Registration No are required.)");
+      return;
+    }
+
+    setIsSavingEdit(true);
+    try {
+      const ok = await updateExamResultCandidate(editingResult.id, {
+        studentName: cleanName,
+        registrationNo: cleanReg,
+        company: cleanCompany,
+        examName: cleanExam || editingResult.examName
+      });
+
+      if (ok) {
+        setResults(prev => prev.map(r => r.id === editingResult.id ? {
+          ...r,
+          studentName: cleanName,
+          registrationNo: cleanReg,
+          company: cleanCompany,
+          examName: cleanExam || r.examName
+        } : r));
+        setEditingResult(null);
+        setToastMsg({
+          text: `'${cleanName} (${cleanReg})' 응시자 정보가 성공적으로 수정되었습니다.`,
+          type: 'success'
+        });
+        setTimeout(() => setToastMsg(null), 4000);
+      } else {
+        throw new Error("수정 작업에 실패했습니다.");
+      }
+    } catch (err: any) {
+      alert("정보 수정 중 오류가 발생했습니다: " + (err.message || ''));
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
   const handleDelete = async (id: string) => {
     if (window.confirm("정말 이 응시자의 기록을 삭제하시겠습니까? (Are you sure you want to delete this record?)")) {
       try {
         const ok = await deleteExamResult(id);
         if (ok) {
           setResults(prev => prev.filter(r => r.id !== id));
+          setToastMsg({
+            text: "응시자 기록이 삭제되었습니다.",
+            type: 'success'
+          });
+          setTimeout(() => setToastMsg(null), 3000);
         } else {
           throw new Error("삭제 작업 실패");
         }
@@ -312,7 +383,7 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
                         <th className="px-4 py-3 cursor-pointer hover:bg-slate-800/50 transition-colors text-right hidden sm:table-cell" onClick={() => handleSort('rcScore')}>
                           R/C <SortIcon field="rcScore" />
                         </th>
-                        <th className="px-4 py-3 w-10"></th>
+                        <th className="px-4 py-3 text-right">ACTION</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/50">
@@ -329,10 +400,24 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
                           <td className="px-4 py-3 text-right font-tech text-slate-400 hidden sm:table-cell">{r.lcScore}</td>
                           <td className="px-4 py-3 text-right font-tech text-slate-400 hidden sm:table-cell">{r.rcScore}</td>
                           <td className="px-4 py-3 text-right">
-                            <button onClick={() => handleDelete(r.id)} className="flex items-center justify-end gap-1 text-slate-500 hover:text-red-500 transition-colors ml-auto" title="Delete record">
-                              <Trash2 size={14} />
-                              <span className="text-[10px] hidden sm:inline">삭제</span>
-                            </button>
+                            <div className="flex items-center justify-end gap-1.5 ml-auto">
+                              <button 
+                                onClick={() => handleOpenEdit(r)} 
+                                className="flex items-center gap-1 text-cyan-400 hover:text-cyan-200 transition-colors px-2 py-1 rounded bg-cyan-950/50 hover:bg-cyan-900/60 border border-cyan-800/60 text-xs" 
+                                title="응시자 정보 수정"
+                              >
+                                <Edit3 size={12} />
+                                <span className="text-[11px] font-kor hidden sm:inline">수정</span>
+                              </button>
+                              <button 
+                                onClick={() => handleDelete(r.id)} 
+                                className="flex items-center gap-1 text-slate-400 hover:text-red-400 transition-colors px-2 py-1 rounded bg-slate-900/50 hover:bg-red-950/40 border border-slate-800 hover:border-red-900/60 text-xs" 
+                                title="기록 삭제"
+                              >
+                                <Trash2 size={12} />
+                                <span className="text-[11px] font-kor hidden sm:inline">삭제</span>
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -350,6 +435,136 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
             </>
           )}
         </div>
+
+        {/* Toast Notification */}
+        {toastMsg && (
+          <div className="absolute bottom-6 right-6 z-50 bg-slate-900 border border-cyan-500 text-cyan-300 px-4 py-3 rounded shadow-2xl flex items-center gap-2 text-sm animate-fade-in">
+            <CheckCircle2 size={18} className="text-cyan-400" />
+            <span className="font-kor font-medium">{toastMsg.text}</span>
+          </div>
+        )}
+
+        {/* Edit Candidate Modal */}
+        {editingResult && (
+          <div className="fixed inset-0 z-[500] bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 animate-fade-in">
+            <div className="bg-slate-900 border border-cyan-500/80 rounded-sm shadow-2xl max-w-lg w-full overflow-hidden flex flex-col">
+              <div className="p-4 sm:p-5 bg-slate-950 border-b border-slate-800 flex justify-between items-center">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded bg-cyan-950/80 border border-cyan-500 flex items-center justify-center text-cyan-400">
+                    <Edit3 size={16} />
+                  </div>
+                  <div>
+                    <h3 className="font-tech font-bold text-white text-base tracking-wide">
+                      EDIT CANDIDATE INFO
+                    </h3>
+                    <p className="text-[11px] font-kor text-slate-400">
+                      외국인 근로자 응시 정보 직접 수정
+                    </p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setEditingResult(null)} 
+                  className="w-8 h-8 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition-colors"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="p-4 sm:p-6 space-y-4 bg-slate-900/90 text-sm">
+                {/* Quick Context Card */}
+                <div className="bg-slate-950/70 border border-slate-800 p-3 rounded text-xs space-y-1">
+                  <div className="flex justify-between text-slate-400">
+                    <span className="font-tech text-[10px] tracking-wider uppercase">Exam Record</span>
+                    <span className="font-tech text-cyan-400 font-bold">{editingResult.score} PT (LC: {editingResult.lcScore} / RC: {editingResult.rcScore})</span>
+                  </div>
+                  <div className="text-slate-500 font-tech text-[11px]">
+                    {editingResult.timestamp?.toDate ? editingResult.timestamp.toDate().toLocaleString('ko-KR') : ''}
+                  </div>
+                </div>
+
+                <div className="space-y-3.5">
+                  <div>
+                    <label className="block text-[11px] font-tech text-cyan-400 tracking-wider mb-1">
+                      STUDENT NAME (성명 / 외국인 성함) <span className="text-red-400">*</span>
+                    </label>
+                    <input 
+                      type="text" 
+                      value={editForm.studentName}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, studentName: e.target.value }))}
+                      placeholder="예: NGUYEN VAN A / 홍길동"
+                      className="w-full bg-slate-950 border border-slate-700 focus:border-cyan-400 rounded px-3 py-2 text-white font-kor text-sm outline-none"
+                    />
+                    <p className="text-[10px] text-slate-500 mt-0.5">성/이름 순서 오류나 오탈자를 정확히 수정해주세요.</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-tech text-cyan-400 tracking-wider mb-1">
+                      REGISTRATION NO (수험번호 / 사번) <span className="text-red-400">*</span>
+                    </label>
+                    <input 
+                      type="text" 
+                      value={editForm.registrationNo}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, registrationNo: e.target.value }))}
+                      placeholder="예: TM-001, K-01"
+                      className="w-full bg-slate-950 border border-slate-700 focus:border-cyan-400 rounded px-3 py-2 text-white font-tech tracking-wider text-sm outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-tech text-cyan-400 tracking-wider mb-1">
+                      ORGANIZATION / COMPANY (소속업체명)
+                    </label>
+                    <input 
+                      type="text" 
+                      value={editForm.company}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, company: e.target.value }))}
+                      placeholder="예: HD현대삼호 / 협력사명"
+                      className="w-full bg-slate-950 border border-slate-700 focus:border-cyan-400 rounded px-3 py-2 text-white font-kor text-sm outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-tech text-cyan-400 tracking-wider mb-1">
+                      EXAM SLOT (응시 모의고사 회차)
+                    </label>
+                    <input 
+                      type="text" 
+                      value={editForm.examName}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, examName: e.target.value }))}
+                      placeholder="예: 모의고사1회"
+                      className="w-full bg-slate-950 border border-slate-700 focus:border-cyan-400 rounded px-3 py-2 text-white font-kor text-sm outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-4 bg-slate-950 border-t border-slate-800 flex justify-end gap-2.5">
+                <button 
+                  type="button" 
+                  onClick={() => setEditingResult(null)}
+                  className="px-4 py-2 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-tech text-xs tracking-wider transition-colors"
+                >
+                  CANCEL
+                </button>
+                <button 
+                  type="button" 
+                  onClick={handleSaveEdit}
+                  disabled={isSavingEdit}
+                  className="px-5 py-2 rounded bg-cyan-600 hover:bg-cyan-500 text-white font-kor font-medium text-xs tracking-wider flex items-center gap-1.5 shadow-lg shadow-cyan-600/30 transition-all disabled:opacity-50"
+                >
+                  {isSavingEdit ? (
+                    <span>저장 중...</span>
+                  ) : (
+                    <>
+                      <CheckCircle2 size={14} />
+                      <span>정보 저장하기</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </GlassCard>
     </div>
   );

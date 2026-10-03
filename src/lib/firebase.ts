@@ -2,7 +2,7 @@ import { initializeApp } from "firebase/app";
 import { getAuth, signInAnonymously } from "firebase/auth";
 import { 
   getFirestore, collection, addDoc, serverTimestamp, getDocs, 
-  doc, setDoc, getDoc, onSnapshot, deleteDoc 
+  doc, setDoc, getDoc, onSnapshot, deleteDoc, updateDoc 
 } from "firebase/firestore";
 import { ExamResult, Question } from "../types";
 
@@ -163,10 +163,12 @@ export async function saveExamQuestionsToFirestore(examName: string, questions: 
   try {
     await ensureAuth();
     const slotDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'exam_slots', examName);
+    const realCount = questions.filter(x => x.num !== '예시' && x.num !== '보기').length;
     await setDoc(slotDocRef, {
       examName,
       questions,
-      questionCount: questions.length,
+      questionCount: realCount || questions.length,
+      totalItemsCount: questions.length,
       updatedAt: serverTimestamp()
     });
 
@@ -234,6 +236,52 @@ export async function deleteLiveSession(regNo: string): Promise<boolean> {
   }
 }
 
+export async function updateLiveSessionCandidate(
+  oldRegNo: string,
+  data: { regNo: string; name: string; examName?: string }
+): Promise<boolean> {
+  try {
+    await ensureAuth();
+    const cleanOld = (oldRegNo || '').trim();
+    const cleanNew = (data.regNo || '').trim();
+    const cleanName = (data.name || '').trim();
+    const cleanExam = data.examName ? data.examName.trim() : undefined;
+
+    if (!cleanNew || !cleanName) {
+      throw new Error("수험번호와 이름은 필수 항목입니다.");
+    }
+
+    const oldDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'active_sessions', cleanOld);
+    const snap = await getDoc(oldDocRef);
+    const existing = snap.exists() ? snap.data() : {};
+
+    const updatedData = {
+      ...existing,
+      regNo: cleanNew,
+      name: cleanName,
+      ...(cleanExam ? { examName: cleanExam } : {}),
+      lastUpdate: serverTimestamp()
+    };
+
+    if (cleanNew !== cleanOld) {
+      // Re-key document with new registration number
+      const newDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'active_sessions', cleanNew);
+      await setDoc(newDocRef, updatedData);
+      await deleteDoc(oldDocRef);
+    } else {
+      await updateDoc(oldDocRef, {
+        name: cleanName,
+        ...(cleanExam ? { examName: cleanExam } : {}),
+        lastUpdate: serverTimestamp()
+      });
+    }
+    return true;
+  } catch (e) {
+    console.error("Failed to update live session candidate info:", e);
+    return false;
+  }
+}
+
 export async function saveResultToFirebase(resultData: ExamResult): Promise<boolean> {
   try {
     await ensureAuth();
@@ -249,6 +297,36 @@ export async function saveResultToFirebase(resultData: ExamResult): Promise<bool
   } catch (error: any) {
     console.error("파이어베이스 저장 에러:", error);
     return false; 
+  }
+}
+
+export async function updateExamResultCandidate(
+  id: string,
+  data: { studentName: string; registrationNo: string; company: string; examName?: string }
+): Promise<boolean> {
+  try {
+    await ensureAuth();
+    const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'exam_results', id);
+    const cleanName = (data.studentName || '').trim();
+    const cleanReg = (data.registrationNo || '').trim();
+    const cleanComp = (data.company || '').trim();
+    const cleanExam = data.examName ? data.examName.trim() : undefined;
+
+    if (!cleanName || !cleanReg) {
+      throw new Error("수험번호와 이름은 필수 항목입니다.");
+    }
+
+    await updateDoc(docRef, {
+      studentName: cleanName,
+      registrationNo: cleanReg,
+      company: cleanComp,
+      ...(cleanExam ? { examName: cleanExam } : {}),
+      updatedAt: serverTimestamp()
+    });
+    return true;
+  } catch (e) {
+    console.error("Failed to update exam result candidate info:", e);
+    return false;
   }
 }
 

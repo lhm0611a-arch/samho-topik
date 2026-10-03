@@ -177,7 +177,10 @@ export const TestScreen: React.FC = () => {
   }
   rawQuestionText = rawQuestionText.replace(/윗글/g, '아래 글');
 
-  const progressPercent = ((currentIdx + 1) / questions.length) * 100;
+  const currentRealIdx = typeof q.realIdx === 'number' ? q.realIdx : (
+    questions.slice(0, currentIdx + 1).filter(x => x.num !== '예시' && x.num !== '보기').length
+  );
+  const progressPercent = realQuestionsCount > 0 ? (currentRealIdx / realQuestionsCount) * 100 : 0;
 
   return (
     <div className="flex-1 flex flex-col min-h-0 w-full overflow-hidden bg-transparent">
@@ -230,8 +233,14 @@ export const TestScreen: React.FC = () => {
 
               {/* Right Controls: Question Counter */}
               <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-                <div className="text-slate-300 font-tech text-xs bg-slate-900/80 px-2.5 py-1 rounded border border-slate-800 shrink-0 whitespace-nowrap">
-                  <span className="text-cyan-400">{isExample ? 'P' : 'Q'}</span>{q.realIdx} <span className="mx-0.5 text-slate-500">/</span> {realQuestionsCount}
+                <div className="text-slate-300 font-tech text-xs bg-slate-900/80 px-2.5 py-1 rounded border border-slate-800 shrink-0 whitespace-nowrap flex items-center gap-1">
+                  {isExample ? (
+                    <span className="text-[#00b050] font-kor font-bold">[예시]</span>
+                  ) : (
+                    <span className="text-cyan-400 font-tech font-bold">Q{q.realIdx}</span>
+                  )}
+                  <span className="text-slate-500 font-tech">/</span>
+                  <span className="text-slate-300 font-tech">{realQuestionsCount}</span>
                 </div>
               </div>
             </div>
