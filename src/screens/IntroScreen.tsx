@@ -9,23 +9,26 @@ export const IntroScreen: React.FC = () => {
   const [company, setCompany] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const t = getTranslation(selectedLang);
 
   const formatRegNo = (value: string) => {
-    if (value.includes('-')) return value;
-    const match = value.match(/^([A-Za-z]+)(\d+)$/);
+    const clean = value.toUpperCase().trim();
+    if (clean.includes('-')) return clean;
+    const match = clean.match(/^([A-Za-z]+)(\d+)$/);
     if (match) {
       return `${match[1]}-${match[2]}`;
     }
-    return value;
+    return clean;
   };
 
   const handleStart = () => {
     if (!regNo.trim() || !company.trim() || !firstName.trim() || !lastName.trim()) {
-      alert("모든 항목을 입력해주세요. (Please fill in all fields.)");
+      setErrorMsg("모든 항목을 입력해주세요. (Please fill in all fields.)");
       return;
     }
+    setErrorMsg(null);
     
     const formattedRegNo = formatRegNo(regNo.trim());
     const fullName = `${lastName.trim()} ${firstName.trim()}`.trim();
@@ -148,6 +151,12 @@ export const IntroScreen: React.FC = () => {
               </div>
             </div>
           </div>
+
+          {errorMsg && (
+            <div className="px-3 py-2 bg-red-950/70 border border-red-700/80 text-red-300 text-xs font-kor rounded-sm animate-fade-in">
+              {errorMsg}
+            </div>
+          )}
 
           <div className="pt-3 sm:pt-4 flex flex-col gap-2.5 sm:gap-3">
             <StartGradientButton onClick={handleStart} className="w-full font-tech tracking-[0.2em] py-3 sm:py-3.5 rounded-sm text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg">

@@ -20,10 +20,12 @@ export const AdminScreen: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   
   const [logs, setLogs] = useState<{msg: string, type: string, time: string}[]>([{ msg: '> SYSTEM STANDBY... Realtime Cloud Enabled', type: 'info', time: new Date().toLocaleTimeString() }]);
   const [newExamName, setNewExamName] = useState('');
+  const [selectedActiveExam, setSelectedActiveExam] = useState(activeExamName);
   const [selectedSaveExam, setSelectedSaveExam] = useState(activeExamName);
   const [jsonResult, setJsonResult] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingSlot, setIsLoadingSlot] = useState(false);
+  const [adminToast, setAdminToast] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   
   const [showPreview, setShowPreview] = useState(false);
   const [showLiveMonitor, setShowLiveMonitor] = useState(false);
@@ -33,14 +35,18 @@ export const AdminScreen: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const [fileName, setFileName] = useState('CLICK TO SELECT PDF');
   const [isExtracting, setIsExtracting] = useState(false);
 
+  const showToast = (text: string, type: 'success' | 'error' = 'success') => {
+    setAdminToast({ text, type });
+    setTimeout(() => setAdminToast(null), 3500);
+  };
+
   const writeLog = (msg: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') => {
     setLogs(prev => [...prev, { msg, type, time: new Date().toLocaleTimeString() }]);
   };
 
   const handleChangeActiveExam = async () => {
-    const target = document.getElementById('admin-active-exam-select') as HTMLSelectElement;
-    if(!target.value) return;
-    const selected = target.value;
+    const selected = selectedActiveExam || activeExamName;
+    if(!selected) return;
     writeLog(`응시자 시험 슬롯 변경 요청: ${selected}`, 'info');
     try {
       const ok = await updateActiveExam(selected, availableExams);
@@ -48,31 +54,40 @@ export const AdminScreen: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         setActiveExamName(selected);
         setSelectedSaveExam(selected);
         writeLog(`'${selected}' 슬롯이 활성화되었습니다. 모든 응시자 화면에 즉각 실시간 반영됩니다.`, 'success');
-        alert(`'${selected}' 슬롯이 성공적으로 활성화되었습니다!`);
+        showToast(`'${selected}' 슬롯이 성공적으로 활성화되었습니다!`, 'success');
       } else {
         throw new Error("클라우드 설정 업데이트 실패");
       }
     } catch(e: any) { 
-      writeLog(`설정 변경에 실패했습니다: ${e.message}`, 'error'); 
+      writeLog(`설정 변경에 실패했습니다: ${e.message}`, 'error');
+      showToast(`슬롯 활성화 실패: ${e.message}`, 'error');
     }
   };
 
   const handleCreateNewExam = async () => {
     const name = newExamName.trim();
-    if(!name) return alert("생성할 새 모의고사 이름을 입력하세요.");
-    if(availableExams.includes(name)) return alert("이미 존재하는 이름입니다.");
+    if(!name) {
+      showToast("생성할 새 모의고사 이름을 입력하세요.", 'error');
+      return;
+    }
+    if(availableExams.includes(name)) {
+      showToast("이미 존재하는 모의고사 슬롯 이름입니다.", 'error');
+      return;
+    }
     
     writeLog(`새 슬롯 생성 중: ${name}`, 'info');
     try {
       await addAvailableExamSlot(name);
       setAvailableExams([...availableExams, name]);
+      setSelectedActiveExam(name);
       setSelectedSaveExam(name);
       setActiveExamName(name);
       setNewExamName('');
       writeLog(`'${name}' 슬롯이 생성 및 활성화되었습니다.`, 'success');
-      alert(`'${name}' 슬롯이 생성 및 활성화되었습니다!`);
+      showToast(`'${name}' 슬롯이 생성 및 활성화되었습니다!`, 'success');
     } catch(e: any) { 
-      writeLog(`슬롯 생성에 실패했습니다: ${e.message}`, 'error'); 
+      writeLog(`슬롯 생성에 실패했습니다: ${e.message}`, 'error');
+      showToast(`슬롯 생성 실패: ${e.message}`, 'error');
     }
   };
 
@@ -89,6 +104,7 @@ export const AdminScreen: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           const validData = json.data.filter((r: any[]) => r[0] && r[0].toString().trim() !== '문제번호');
           qs = validData.map((r: any[], idx: number) => ({
             num: r[0] || (idx + 1),
+            realIdx: '-',
             type: r[1] || '읽기',
             passage: r[2] || '',
             question: r[3] || '',
@@ -103,13 +119,16 @@ export const AdminScreen: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       if (qs && qs.length > 0) {
         setJsonResult(JSON.stringify(qs, null, 2));
         const realCount = qs.filter((x: any) => x.num !== '예시' && x.num !== '보기').length;
-        writeLog(`'${selectedSaveExam}' 슬롯에서 총 ${realCount}문항 (예시 포함 ${qs.length}개)을 성공적으로 불러왔습니다. [PREVIEW / EDIT]에서 편집 가능합니다.`, "success");
+        writeLog(`'${selectedSaveExam}' 슬롯에서 총 ${realCount}문항 (예시 포함 ${qs.length}개)을 성공적으로 불러왔습니다. [편집 / 상세보기]에서 확인 가능합니다.`, "success");
+        showToast(`'${selectedSaveExam}' 슬롯 문항 (${realCount}문항) 로드 완료`, 'success');
       } else {
         writeLog(`'${selectedSaveExam}' 슬롯에 저장된 문항이 없습니다. PDF 스캔 후 저장해주세요.`, "warning");
         setJsonResult(JSON.stringify([], null, 2));
+        showToast(`'${selectedSaveExam}' 슬롯에 저장된 문항이 없습니다.`, 'error');
       }
     } catch (e: any) {
       writeLog(`문항 불러오기 실패: ${e.message}`, "error");
+      showToast(`문항 불러오기 실패: ${e.message}`, 'error');
     } finally {
       setIsLoadingSlot(false);
     }
@@ -117,7 +136,10 @@ export const AdminScreen: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
   const handleRunExtraction = async () => {
     const file = fileInputRef.current?.files?.[0];
-    if(!file) return alert("PDF 파일을 먼저 선택해주세요.");
+    if(!file) {
+      showToast("분석할 PDF 파일을 먼저 선택해주세요.", 'error');
+      return;
+    }
     
     setIsExtracting(true);
     setLogs([]);
@@ -202,7 +224,10 @@ export const AdminScreen: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   };
 
   const handleSaveToSheet = async () => {
-    if(!jsonResult) return alert("저장할 문항 데이터가 없습니다. 먼저 PDF를 분석하거나 슬롯 문항을 불러오세요.");
+    if(!jsonResult) {
+      showToast("저장할 문항 데이터가 없습니다. 먼저 PDF를 분석하거나 슬롯 문항을 불러오세요.", 'error');
+      return;
+    }
     setIsSaving(true);
     try {
       const parsed = JSON.parse(jsonResult);
@@ -212,11 +237,22 @@ export const AdminScreen: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
       writeLog(`[${selectedSaveExam}] 슬롯에 문항 저장 중... (${parsed.length}개)`, "info");
 
-      // Normalize questions
+      // Normalize questions safely (supports 0-based number 0..3 from Firestore and 1-based string "1".."4" from GAS/input)
       let rc = 0;
       const formattedQs: Question[] = parsed.map((o: any, idx: number) => {
         const isEx = o.num === '예시' || o.num === '보기';
         if (!isEx) rc++;
+
+        let normalizedAnswer: number | "" = "";
+        if (typeof o.answer === 'number' && !isNaN(o.answer)) {
+          normalizedAnswer = o.answer;
+        } else if (typeof o.answer === 'string' && o.answer.trim() !== '') {
+          const parsedAns = parseInt(o.answer.trim(), 10);
+          if (!isNaN(parsedAns)) {
+            normalizedAnswer = parsedAns >= 1 && parsedAns <= 4 ? parsedAns - 1 : parsedAns;
+          }
+        }
+
         return {
           num: o.num !== undefined ? o.num : (idx + 1),
           realIdx: isEx ? '-' : rc,
@@ -227,9 +263,7 @@ export const AdminScreen: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           options: Array.isArray(o.options) 
             ? o.options 
             : [o.opt1 || '', o.opt2 || '', o.opt3 || '', o.opt4 || ''],
-          answer: (o.answer !== undefined && o.answer !== "" && !isNaN(parseInt(o.answer))) 
-            ? (typeof o.answer === 'number' ? o.answer : parseInt(o.answer) - 1)
-            : (typeof o.answer === 'number' ? o.answer : ""),
+          answer: normalizedAnswer,
           score: o.score !== undefined && o.score !== "" ? Number(o.score) : (o.type === '듣기' ? 3 : 2)
         };
       });
@@ -238,7 +272,7 @@ export const AdminScreen: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       if (ok) {
         const realCount = formattedQs.filter(x => x.num !== '예시' && x.num !== '보기').length;
         writeLog(`'${selectedSaveExam}' 슬롯에 총 ${realCount}문항 (예시 포함 ${formattedQs.length}개) 저장 완료! 응시자 화면에 즉각 반영됩니다.`, "success");
-        alert(`'${selectedSaveExam}' 슬롯에 총 ${realCount}문항 (예시 포함 ${formattedQs.length}개)이 저장되었습니다!\n모든 응시자 화면에 즉각 반영됩니다.`);
+        showToast(`'${selectedSaveExam}' 슬롯에 총 ${realCount}문항 저장 완료! 즉각 반영됩니다.`, 'success');
         if (selectedSaveExam === activeExamName) {
           useExamStore.getState().setQuestions(formattedQs);
         }
@@ -247,9 +281,19 @@ export const AdminScreen: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       }
     } catch(e: any) { 
       writeLog(`저장 실패: ${e.message}`, "error"); 
-      alert("오류 발생: " + e.message);
+      showToast(`저장 오류 발생: ${e.message}`, 'error');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleExportAllCSV = async () => {
+    const ok = await exportResultsToCSV();
+    if (ok) {
+      writeLog("전체 응시자 성적 CSV 다운로드가 완료되었습니다.", "success");
+      showToast("전체 응시자 성적 CSV 파일이 다운로드되었습니다.", "success");
+    } else {
+      showToast("다운로드할 응시 결과 데이터가 없거나 오류가 발생했습니다.", "error");
     }
   };
 
@@ -283,6 +327,18 @@ export const AdminScreen: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           </div>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-sm bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white border border-slate-700 text-lg font-tech transition-all"><X size={18} /></button>
         </div>
+
+        {/* Toast Notification Banner */}
+        {adminToast && (
+          <div className={`px-4 py-2.5 text-xs font-kor font-bold flex items-center justify-between border-b shrink-0 animate-fade-in ${
+            adminToast.type === 'success' 
+              ? 'bg-emerald-950/90 border-emerald-500/50 text-emerald-300' 
+              : 'bg-red-950/90 border-red-500/50 text-red-300'
+          }`}>
+            <span>{adminToast.text}</span>
+            <button onClick={() => setAdminToast(null)} className="text-slate-400 hover:text-white ml-4"><X size={14} /></button>
+          </div>
+        )}
         
         <div className="flex-1 overflow-y-auto p-4 md:p-6 bg-transparent space-y-4 md:space-y-6 no-scrollbar">
           
@@ -307,7 +363,12 @@ export const AdminScreen: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             </div>
             <div className="flex flex-col md:flex-row gap-4">
               <div className="flex-1 flex gap-2 items-center">
-                <select id="admin-active-exam-select" defaultValue={activeExamName} className="system-input p-2.5 outline-none text-sm flex-1 font-kor">
+                <select 
+                  id="admin-active-exam-select" 
+                  value={selectedActiveExam} 
+                  onChange={(e) => setSelectedActiveExam(e.target.value)} 
+                  className="system-input p-2.5 outline-none text-sm flex-1 font-kor"
+                >
                   {availableExams.map(ex => (
                     <option key={ex} value={ex}>
                       {ex} {ex === activeExamName ? '★ [현재 활성]' : ''}
@@ -355,7 +416,7 @@ export const AdminScreen: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           <div className="bg-slate-900/70 p-5 rounded-sm border border-slate-800 shadow-sm col-span-1 lg:col-span-2 backdrop-blur-sm">
             <div className="flex justify-between items-center mb-3">
               <label className="font-tech text-emerald-500 text-[11px] tracking-widest"><span className="mr-1">3.</span> RESULT MANAGEMENT</label>
-              <button onClick={exportResultsToCSV} className="bg-emerald-600 border border-emerald-500 text-white px-4 py-2.5 rounded-sm font-tech text-xs tracking-widest hover:bg-emerald-500 transition-colors">
+              <button onClick={handleExportAllCSV} className="bg-emerald-600 border border-emerald-500 text-white px-4 py-2.5 rounded-sm font-tech text-xs tracking-widest hover:bg-emerald-500 transition-colors">
                 📊 EXPORT TO CSV
               </button>
             </div>

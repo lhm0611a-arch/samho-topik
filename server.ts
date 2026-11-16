@@ -24,7 +24,7 @@ async function startServer() {
   // along with model fallback (gemini-3.7-flash -> gemini-2.5-flash)
   async function generateWithFallback(
     createParams: (model: string) => { contents: any; config?: any },
-    models = ['gemini-3.7-flash', 'gemini-2.5-flash'],
+    models = ['gemini-3-flash-preview', 'gemini-2.5-flash'],
     maxRetriesPerModel = 2
   ) {
     let lastError: any = null;

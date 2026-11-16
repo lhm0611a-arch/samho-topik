@@ -26,10 +26,13 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
   const [sortField, setSortField] = useState<keyof ResultData>('timestamp');
   const [sortDesc, setSortDesc] = useState(true);
   const [selectedExam, setSelectedExam] = useState<string>('ALL');
+  const [selectedCompany, setSelectedCompany] = useState<string>('ALL');
   const [activeView, setActiveView] = useState<'all' | 'table' | 'charts'>('all');
   
-  // Examinee Editing State
+  // Examinee Editing & Deleting State
   const [editingResult, setEditingResult] = useState<ResultData | null>(null);
+  const [deletingResult, setDeletingResult] = useState<ResultData | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({
     studentName: '',
     registrationNo: '',
@@ -40,6 +43,11 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
   const [toastMsg, setToastMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+
+  const showToast = (text: string, type: 'success' | 'error' = 'success') => {
+    setToastMsg({ text, type });
+    setTimeout(() => setToastMsg(null), 3500);
+  };
 
   const getTimestampMs = (t: any): number => {
     if (!t) return 0;
@@ -120,7 +128,6 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
         }, (err) => {
           console.error("onSnapshot error:", err);
           if (isMounted) {
-            // Keep existing results if already fetched via getDocs
             setFetchError(err.message || "실시간 동기화 오류 발생");
             setLoading(false);
           }
@@ -145,7 +152,13 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
   }, [refreshKey]);
 
   const uniqueExams = Array.from(new Set(results.map(r => r.examName).filter(Boolean)));
-  const filteredExams = selectedExam === 'ALL' ? results : results.filter(r => r.examName === selectedExam);
+  const uniqueCompanies = Array.from(new Set(results.map(r => r.company).filter(c => Boolean(c) && c !== '-')));
+
+  const filteredExams = results.filter(r => {
+    if (selectedExam !== 'ALL' && r.examName !== selectedExam) return false;
+    if (selectedCompany !== 'ALL' && r.company !== selectedCompany) return false;
+    return true;
+  });
   
   const searchedResults = filteredExams.filter(r => {
     const term = (searchTerm || '').toLowerCase().trim();
@@ -226,10 +239,11 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
 
   const handleOpenEdit = (record: ResultData) => {
     setEditingResult(record);
+    setEditError(null);
     setEditForm({
       studentName: record.studentName || '',
       registrationNo: record.registrationNo || '',
-      company: record.company || '',
+      company: record.company && record.company !== '-' ? record.company : '',
       examName: record.examName || ''
     });
   };
@@ -242,11 +256,12 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
     const cleanExam = editForm.examName.trim();
 
     if (!cleanName || !cleanReg) {
-      alert("성명과 수험번호는 필수 입력 항목입니다. (Name and Registration No are required.)");
+      setEditError("성명과 수험번호는 필수 입력 항목입니다. (Name and Registration No are required.)");
       return;
     }
 
     setIsSavingEdit(true);
+    setEditError(null);
     try {
       const ok = await updateExamResultCandidate(editingResult.id, {
         studentName: cleanName,
@@ -260,43 +275,51 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
           ...r,
           studentName: cleanName,
           registrationNo: cleanReg,
-          company: cleanCompany,
+          company: cleanCompany || '-',
           examName: cleanExam || r.examName
         } : r));
         setEditingResult(null);
-        setToastMsg({
-          text: `'${cleanName} (${cleanReg})' 응시자 정보가 성공적으로 수정되었습니다.`,
-          type: 'success'
-        });
-        setTimeout(() => setToastMsg(null), 4000);
+        showToast(`'${cleanName} (${cleanReg})' 응시자 정보가 성공적으로 수정되었습니다.`, 'success');
       } else {
         throw new Error("수정 작업에 실패했습니다.");
       }
     } catch (err: any) {
-      alert("정보 수정 중 오류가 발생했습니다: " + (err.message || ''));
+      setEditError("정보 수정 중 오류가 발생했습니다: " + (err.message || ''));
     } finally {
       setIsSavingEdit(false);
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (window.confirm("정말 이 응시자의 기록을 삭제하시겠습니까? (Are you sure you want to delete this record?)")) {
-      try {
-        const ok = await deleteExamResult(id);
-        if (ok) {
-          setResults(prev => prev.filter(r => r.id !== id));
-          setToastMsg({
-            text: "응시자 기록이 삭제되었습니다.",
-            type: 'success'
-          });
-          setTimeout(() => setToastMsg(null), 3000);
-        } else {
-          throw new Error("삭제 작업 실패");
-        }
-      } catch (error) {
-        console.error("Error deleting document:", error);
-        alert("삭제 중 오류가 발생했습니다. (Error deleting document.)");
+  const handleExecuteDelete = async () => {
+    if (!deletingResult) return;
+    const targetId = deletingResult.id;
+    const targetName = deletingResult.studentName;
+    setDeletingResult(null);
+    try {
+      const ok = await deleteExamResult(targetId);
+      if (ok) {
+        setResults(prev => prev.filter(r => r.id !== targetId));
+        showToast(`'${targetName}' 응시자 기록이 삭제되었습니다.`, 'success');
+      } else {
+        throw new Error("삭제 작업 실패");
       }
+    } catch (error) {
+      console.error("Error deleting document:", error);
+      showToast("삭제 중 오류가 발생했습니다.", 'error');
+    }
+  };
+
+  const handleExportCSV = async () => {
+    const suffixParts: string[] = [];
+    if (selectedExam !== 'ALL') suffixParts.push(selectedExam);
+    if (selectedCompany !== 'ALL') suffixParts.push(selectedCompany);
+    const suffix = suffixParts.join('_');
+
+    const ok = await exportResultsToCSV(searchedResults.length > 0 ? searchedResults : results, suffix);
+    if (ok) {
+      showToast(`CSV 파일 다운로드가 완료되었습니다! (${searchedResults.length > 0 ? searchedResults.length : results.length}건)`, 'success');
+    } else {
+      showToast("다운로드할 응시 결과가 없거나 오류가 발생했습니다.", 'error');
     }
   };
 
@@ -338,8 +361,8 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
               <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
               <span className="hidden sm:inline">REFRESH</span>
             </button>
-            <button onClick={() => exportResultsToCSV()} className="flex items-center gap-2 px-2.5 sm:px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-sm text-xs font-tech tracking-widest transition-colors">
-              <Download size={14} /> <span className="hidden sm:inline">EXPORT</span> CSV
+            <button onClick={handleExportCSV} className="flex items-center gap-2 px-2.5 sm:px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-sm text-xs font-tech tracking-widest transition-colors" title="현재 필터링된 명단 CSV 다운로드">
+              <Download size={14} /> <span className="hidden sm:inline">EXPORT</span> CSV ({searchedResults.length})
             </button>
             <button onClick={onClose} className="w-10 h-10 flex items-center justify-center rounded-sm bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white border border-slate-700 transition-colors">
               <X size={20} />
@@ -396,8 +419,8 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
                   </button>
                 </div>
 
-                {/* Search & Exam Select */}
-                <div className="flex flex-col sm:flex-row gap-3 flex-1 lg:max-w-xl">
+                {/* Search, Company Filter & Exam Select */}
+                <div className="flex flex-col sm:flex-row gap-2.5 flex-1 lg:max-w-2xl">
                   <div className="flex-1 relative">
                     <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
                       <Search size={14} className="text-slate-500" />
@@ -410,7 +433,22 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
                       className="w-full bg-slate-900 border border-slate-700 rounded-sm py-2 pl-9 pr-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 font-kor"
                     />
                   </div>
-                  <div className="w-full sm:w-56">
+                  <div className="w-full sm:w-44">
+                    <select 
+                      value={selectedCompany} 
+                      onChange={(e) => setSelectedCompany(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-sm py-2 px-3 text-sm text-white focus:outline-none focus:border-cyan-500 font-kor"
+                    >
+                      <option value="ALL">전체 업체 ({uniqueCompanies.length})</option>
+                      {uniqueCompanies.map(comp => {
+                        const cnt = results.filter(r => r.company === comp).length;
+                        return (
+                          <option key={comp} value={comp}>{comp} ({cnt}명)</option>
+                        );
+                      })}
+                    </select>
+                  </div>
+                  <div className="w-full sm:w-48">
                     <select 
                       value={selectedExam} 
                       onChange={(e) => setSelectedExam(e.target.value)}
@@ -531,12 +569,12 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
                         (조회 결과: <strong className="text-white">{searchedResults.length}</strong>명 / 전체 {results.length}명)
                       </span>
                     </div>
-                    {searchTerm && (
+                    {(searchTerm || selectedCompany !== 'ALL' || selectedExam !== 'ALL') && (
                       <button 
-                        onClick={() => setSearchTerm('')} 
+                        onClick={() => { setSearchTerm(''); setSelectedCompany('ALL'); setSelectedExam('ALL'); }} 
                         className="text-[11px] font-kor text-cyan-400 hover:text-cyan-200 underline"
                       >
-                        검색 초기화
+                        필터 초기화
                       </button>
                     )}
                   </div>
@@ -595,7 +633,7 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
                                 <span className="text-[11px] font-kor hidden sm:inline">수정</span>
                               </button>
                               <button 
-                                onClick={() => handleDelete(r.id)} 
+                                onClick={() => setDeletingResult(r)} 
                                 className="flex items-center gap-1 text-slate-400 hover:text-red-400 transition-colors px-2 py-1 rounded bg-slate-900/50 hover:bg-red-950/40 border border-slate-800 hover:border-red-900/60 text-xs" 
                                 title="기록 삭제"
                               >
@@ -615,7 +653,7 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
                                 {results.length === 0 ? "등록된 응시 결과가 없습니다." : `검색 조건에 맞는 데이터가 없습니다. (전체 ${results.length}명)`}
                               </span>
                               <button 
-                                onClick={() => { setSearchTerm(''); setSelectedExam('ALL'); setRefreshKey(k => k + 1); }} 
+                                onClick={() => { setSearchTerm(''); setSelectedCompany('ALL'); setSelectedExam('ALL'); setRefreshKey(k => k + 1); }} 
                                 className="mt-2 px-3 py-1.5 bg-cyan-950/70 hover:bg-cyan-900 border border-cyan-800 text-cyan-400 rounded text-xs font-kor flex items-center gap-1.5 transition-colors"
                               >
                                 <RefreshCw size={12} />
@@ -636,9 +674,40 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
 
         {/* Toast Notification */}
         {toastMsg && (
-          <div className="absolute bottom-6 right-6 z-50 bg-slate-900 border border-cyan-500 text-cyan-300 px-4 py-3 rounded shadow-2xl flex items-center gap-2 text-sm animate-fade-in">
-            <CheckCircle2 size={18} className="text-cyan-400" />
+          <div className={`absolute bottom-6 right-6 z-50 bg-slate-900 border px-4 py-3 rounded shadow-2xl flex items-center gap-2 text-sm animate-fade-in ${toastMsg.type === 'error' ? 'border-red-500 text-red-300' : 'border-cyan-500 text-cyan-300'}`}>
+            {toastMsg.type === 'error' ? <AlertCircle size={18} className="text-red-400" /> : <CheckCircle2 size={18} className="text-cyan-400" />}
             <span className="font-kor font-medium">{toastMsg.text}</span>
+          </div>
+        )}
+
+        {/* Delete Confirmation Modal */}
+        {deletingResult && (
+          <div className="fixed inset-0 z-[500] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in">
+            <div className="bg-slate-900 border border-red-500/80 rounded-sm shadow-2xl max-w-sm w-full p-6 text-center space-y-4">
+              <div className="w-12 h-12 rounded-full bg-red-950/80 border border-red-500 flex items-center justify-center text-red-400 mx-auto">
+                <Trash2 size={22} />
+              </div>
+              <div>
+                <h3 className="font-kor font-bold text-white text-base mb-1">응시 기록을 삭제하시겠습니까?</h3>
+                <p className="text-xs font-kor text-slate-300 leading-relaxed">
+                  <strong className="text-cyan-300">{deletingResult.studentName} ({deletingResult.registrationNo})</strong> 응시자의 <span className="text-white">{deletingResult.examName} ({deletingResult.score}점)</span> 기록이 영구적으로 삭제됩니다.
+                </p>
+              </div>
+              <div className="flex gap-2.5 pt-2">
+                <button
+                  onClick={() => setDeletingResult(null)}
+                  className="flex-1 py-2.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-kor text-xs font-bold transition-colors"
+                >
+                  취소
+                </button>
+                <button
+                  onClick={handleExecuteDelete}
+                  className="flex-1 py-2.5 rounded bg-red-600 hover:bg-red-500 text-white font-kor text-xs font-bold shadow-lg shadow-red-900/40 transition-colors"
+                >
+                  삭제 확인
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -679,6 +748,12 @@ export const AnalyticsDashboard: React.FC<{ onClose: () => void }> = ({ onClose 
                     {formatTimestamp(editingResult.timestamp)}
                   </div>
                 </div>
+
+                {editError && (
+                  <div className="px-3 py-2 bg-red-950/70 border border-red-700 text-red-200 text-xs font-kor rounded-sm">
+                    {editError}
+                  </div>
+                )}
 
                 <div className="space-y-3.5">
                   <div>

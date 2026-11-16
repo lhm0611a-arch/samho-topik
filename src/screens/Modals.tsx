@@ -25,12 +25,16 @@ export const QrModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
 export const AdminAuthModal: React.FC<{ onClose: () => void, onSuccess: () => void }> = ({ onClose, onSuccess }) => {
   const [pwd, setPwd] = useState('');
-
   const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const verify = async () => {
-    if (!pwd) return;
+    if (!pwd) {
+      setErrorMsg("비밀번호를 입력해주세요.");
+      return;
+    }
     setLoading(true);
+    setErrorMsg(null);
     try {
       const res = await fetch("/api/admin-auth", {
         method: "POST",
@@ -41,11 +45,11 @@ export const AdminAuthModal: React.FC<{ onClose: () => void, onSuccess: () => vo
       if (data.success) {
         onSuccess();
       } else {
-        alert("접근 권한이 없습니다. (비밀번호 오류)");
+        setErrorMsg("접근 권한이 없습니다. (비밀번호 오류)");
         setPwd('');
       }
     } catch (e) {
-      alert("서버 오류가 발생했습니다.");
+      setErrorMsg("서버 연결 오류가 발생했습니다.");
     } finally {
       setLoading(false);
     }
@@ -56,11 +60,16 @@ export const AdminAuthModal: React.FC<{ onClose: () => void, onSuccess: () => vo
       <GlassCard className="rounded-sm p-6 max-w-xs w-full text-center shadow-2xl border-t-amber-500" onClick={e => e.stopPropagation()}>
         <div className="w-12 h-12 bg-amber-900/30 border border-amber-500 text-amber-400 rounded-full flex items-center justify-center mx-auto mb-4 text-2xl font-tech font-bold shadow-[0_0_15px_rgba(245,158,11,0.4)]">🔒</div>
         <h3 className="text-xs font-tech text-white mb-2 tracking-widest">ADMIN AUTHENTICATION</h3>
-        <p className="text-slate-400 font-kor mb-5 text-[11px] leading-snug break-keep">시스템 관리자 비밀번호를 입력하세요.</p>
+        <p className="text-slate-400 font-kor mb-4 text-[11px] leading-snug break-keep">시스템 관리자 비밀번호를 입력하세요.</p>
+        {errorMsg && (
+          <div className="mb-3 px-3 py-2 bg-red-950/70 border border-red-700/80 text-red-300 text-xs font-kor rounded-sm animate-fade-in">
+            {errorMsg}
+          </div>
+        )}
         <Input 
           type="password" 
           value={pwd} 
-          onChange={e => setPwd(e.target.value)} 
+          onChange={e => { setPwd(e.target.value); setErrorMsg(null); }} 
           className="mb-5 text-center" 
           placeholder="PASSWORD" 
           onKeyDown={e => e.key === 'Enter' && verify()} 

@@ -20,9 +20,12 @@ export const LiveMonitor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const [sessions, setSessions] = useState<SessionData[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCompany, setSelectedCompany] = useState('ALL');
+  const [selectedExam, setSelectedExam] = useState('ALL');
   const [sortOption, setSortOption] = useState<'date_desc' | 'date_asc' | 'company_asc' | 'company_desc' | 'name_asc' | 'status'>('date_desc');
 
   const [editingSession, setEditingSession] = useState<SessionData | null>(null);
+  const [deletingSession, setDeletingSession] = useState<SessionData | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({
     name: '',
     regNo: '',
@@ -84,6 +87,7 @@ export const LiveMonitor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
   const handleOpenEdit = (session: SessionData) => {
     setEditingSession(session);
+    setEditError(null);
     setEditForm({
       name: session.name || '',
       regNo: session.regNo || '',
@@ -100,11 +104,12 @@ export const LiveMonitor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     const cleanExam = editForm.examName.trim();
 
     if (!cleanName || !cleanReg) {
-      alert("성명과 수험번호는 필수 항목입니다.");
+      setEditError("성명과 수험번호는 필수 항목입니다.");
       return;
     }
 
     setIsSavingEdit(true);
+    setEditError(null);
     try {
       const ok = await updateLiveSessionCandidate(editingSession.regNo, {
         name: cleanName,
@@ -121,29 +126,35 @@ export const LiveMonitor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         throw new Error("실시간 세션 정보 수정 실패");
       }
     } catch (e: any) {
-      alert("정보 수정 중 오류가 발생했습니다: " + (e.message || ''));
+      setEditError("정보 수정 중 오류가 발생했습니다: " + (e.message || ''));
     } finally {
       setIsSavingEdit(false);
     }
   };
 
-  const handleDeleteSession = async (regNo: string, name: string) => {
-    if (window.confirm(`'${name} (${regNo})' 응시자 세션을 모니터링 목록에서 삭제하시겠습니까?`)) {
-      try {
-        await deleteLiveSession(regNo);
-        setToastMsg(`'${name}' 세션이 목록에서 삭제되었습니다.`);
-        setTimeout(() => setToastMsg(null), 3000);
-      } catch (e) {
-        alert("삭제 중 오류가 발생했습니다.");
-      }
+  const handleExecuteDeleteSession = async () => {
+    if (!deletingSession) return;
+    const { regNo, name } = deletingSession;
+    setDeletingSession(null);
+    try {
+      await deleteLiveSession(regNo);
+      setToastMsg(`'${name}' 세션이 목록에서 삭제되었습니다.`);
+      setTimeout(() => setToastMsg(null), 3000);
+    } catch (e) {
+      setToastMsg("세션 삭제 중 오류가 발생했습니다.");
+      setTimeout(() => setToastMsg(null), 3000);
     }
   };
 
   const uniqueCompanies = Array.from(new Set(sessions.map(s => s.company).filter(c => Boolean(c) && c !== '-')));
+  const uniqueExams = Array.from(new Set(sessions.map(s => s.examName).filter(Boolean)));
 
   // Filter sessions
   const filteredSessions = sessions.filter(s => {
     if (selectedCompany !== 'ALL' && s.company !== selectedCompany) {
+      return false;
+    }
+    if (selectedExam !== 'ALL' && s.examName !== selectedExam) {
       return false;
     }
     const term = searchTerm.toLowerCase().trim();
@@ -271,9 +282,9 @@ export const LiveMonitor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             </div>
           </div>
 
-          {/* Search, Company Filter, and Sorting Controls */}
-          <div className="bg-slate-900/70 border border-slate-800 p-3 sm:p-4 rounded-sm flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between shrink-0 shadow-sm">
-            <div className="flex flex-1 flex-col sm:flex-row gap-2 sm:gap-3">
+          {/* Search, Company Filter, Exam Filter, and Sorting Controls */}
+          <div className="bg-slate-900/70 border border-slate-800 p-3 sm:p-4 rounded-sm flex flex-col lg:flex-row gap-3 items-stretch lg:items-center justify-between shrink-0 shadow-sm">
+            <div className="flex flex-1 flex-col sm:flex-row gap-2 sm:gap-2.5">
               {/* Search Box */}
               <div className="relative flex-1">
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
@@ -287,15 +298,29 @@ export const LiveMonitor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               </div>
 
               {/* Company Filter */}
-              <div className="w-full sm:w-48">
+              <div className="w-full sm:w-40">
                 <select 
                   value={selectedCompany} 
                   onChange={(e) => setSelectedCompany(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-sm py-2 px-3 text-xs sm:text-sm text-white focus:outline-none focus:border-cyan-500 font-kor"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-sm py-2 px-2.5 text-xs sm:text-sm text-white focus:outline-none focus:border-cyan-500 font-kor"
                 >
-                  <option value="ALL">전체 업체 ({sessions.length})</option>
+                  <option value="ALL">전체 업체 ({uniqueCompanies.length})</option>
                   {uniqueCompanies.map(c => (
-                    <option key={c} value={c}>{c}</option>
+                    <option key={c} value={c}>{c} ({sessions.filter(s => s.company === c).length})</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Exam Slot Filter */}
+              <div className="w-full sm:w-40">
+                <select 
+                  value={selectedExam} 
+                  onChange={(e) => setSelectedExam(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-sm py-2 px-2.5 text-xs sm:text-sm text-white focus:outline-none focus:border-cyan-500 font-kor"
+                >
+                  <option value="ALL">전체 시험 ({sessions.length})</option>
+                  {uniqueExams.map(ex => (
+                    <option key={ex} value={ex}>{ex} ({sessions.filter(s => s.examName === ex).length})</option>
                   ))}
                 </select>
               </div>
@@ -310,7 +335,7 @@ export const LiveMonitor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               <select 
                 value={sortOption} 
                 onChange={(e) => setSortOption(e.target.value as any)}
-                className="bg-slate-950 border border-cyan-800/80 rounded-sm py-2 px-3 text-xs sm:text-sm text-cyan-300 font-kor focus:outline-none focus:border-cyan-400 cursor-pointer shadow-inner w-full md:w-auto"
+                className="bg-slate-950 border border-cyan-800/80 rounded-sm py-2 px-3 text-xs sm:text-sm text-cyan-300 font-kor focus:outline-none focus:border-cyan-400 cursor-pointer shadow-inner w-full lg:w-auto"
               >
                 <option value="date_desc">🕒 시험 일시 (최신순)</option>
                 <option value="date_asc">🕒 시험 일시 (오래된순)</option>
@@ -372,7 +397,7 @@ export const LiveMonitor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                         <Edit3 size={13} />
                       </button>
                       <button 
-                        onClick={() => handleDeleteSession(s.regNo, s.name)} 
+                        onClick={() => setDeletingSession(s)} 
                         className="text-slate-500 hover:text-red-400 p-1.5 rounded hover:bg-slate-800/80 transition-colors"
                         title="세션 삭제"
                       >
@@ -421,7 +446,7 @@ export const LiveMonitor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                 <p className="font-tech tracking-widest text-sm">NO ACTIVE SESSIONS FOUND</p>
                 {sessions.length > 0 && (
                   <p className="font-kor text-xs text-slate-400">
-                    선택한 검색어나 업체 필터에 해당하는 세션이 없습니다. (전체 {sessions.length}명)
+                    선택한 검색어나 필터에 해당하는 세션이 없습니다. (전체 {sessions.length}명)
                   </p>
                 )}
               </div>
@@ -434,6 +459,37 @@ export const LiveMonitor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           <div className="absolute bottom-6 right-6 z-50 bg-slate-900 border border-cyan-500 text-cyan-300 px-4 py-3 rounded shadow-2xl flex items-center gap-2 text-sm animate-fade-in">
             <CheckCircle2 size={18} className="text-cyan-400" />
             <span className="font-kor font-medium">{toastMsg}</span>
+          </div>
+        )}
+
+        {/* Delete Session Confirmation Modal */}
+        {deletingSession && (
+          <div className="fixed inset-0 z-[500] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in">
+            <div className="bg-slate-900 border border-red-500/80 rounded-sm shadow-2xl max-w-sm w-full p-6 text-center space-y-4">
+              <div className="w-12 h-12 rounded-full bg-red-950/80 border border-red-500 flex items-center justify-center text-red-400 mx-auto">
+                <Trash2 size={22} />
+              </div>
+              <div>
+                <h3 className="font-kor font-bold text-white text-base mb-1">실시간 세션을 삭제하시겠습니까?</h3>
+                <p className="text-xs font-kor text-slate-300 leading-relaxed">
+                  <strong className="text-cyan-300">{deletingSession.name} ({deletingSession.regNo})</strong> 응시자의 모니터링 세션을 목록에서 제거합니다.
+                </p>
+              </div>
+              <div className="flex gap-2.5 pt-2">
+                <button
+                  onClick={() => setDeletingSession(null)}
+                  className="flex-1 py-2.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-kor text-xs font-bold transition-colors"
+                >
+                  취소
+                </button>
+                <button
+                  onClick={handleExecuteDeleteSession}
+                  className="flex-1 py-2.5 rounded bg-red-600 hover:bg-red-500 text-white font-kor text-xs font-bold shadow-lg shadow-red-900/40 transition-colors"
+                >
+                  삭제 확인
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -474,6 +530,12 @@ export const LiveMonitor: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                     PROGRESS: <span className="text-white font-bold">{editingSession.answered} / {editingSession.total}</span>
                   </div>
                 </div>
+
+                {editError && (
+                  <div className="px-3 py-2 bg-red-950/70 border border-red-700 text-red-200 text-xs font-kor rounded-sm">
+                    {editError}
+                  </div>
+                )}
 
                 <div className="space-y-3.5">
                   <div>

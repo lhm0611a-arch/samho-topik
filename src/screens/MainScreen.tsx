@@ -49,11 +49,11 @@ export const MainScreen: React.FC<{ onOpenAdmin: () => void, onOpenQr: () => voi
         <div className="absolute bottom-0 right-0 w-3 lg:w-4 h-3 lg:h-4 border-b border-r border-cyan-500"></div>
 
         {/* Admin/QR Buttons */}
-        <div className="absolute top-4 right-4 flex gap-1.5 z-20">
-          <button onClick={onOpenAdmin} className="hidden md:flex px-2 py-1 border border-cyan-800/80 bg-slate-900/50 text-[9px] text-cyan-500 font-tech items-center gap-1 hover:bg-cyan-900/50 transition-colors rounded-sm tracking-widest">
+        <div className="absolute top-3 right-3 sm:top-4 sm:right-4 flex gap-1.5 z-20">
+          <button onClick={onOpenAdmin} className="flex px-2 py-1 border border-cyan-800/80 bg-slate-900/50 text-[9px] text-cyan-500 font-tech items-center gap-1 hover:bg-cyan-900/50 transition-colors rounded-sm tracking-widest">
             <LogIn className="w-3 h-3" /> SYS_ADMIN
           </button>
-          <button onClick={onOpenQr} className="hidden md:flex px-2 py-1 border border-cyan-800/80 bg-slate-900/50 text-[9px] text-cyan-500 font-tech items-center gap-1 hover:bg-cyan-900/50 transition-colors rounded-sm tracking-widest">
+          <button onClick={onOpenQr} className="flex px-2 py-1 border border-cyan-800/80 bg-slate-900/50 text-[9px] text-cyan-500 font-tech items-center gap-1 hover:bg-cyan-900/50 transition-colors rounded-sm tracking-widest">
             <QrCode className="w-3 h-3" /> QR_LINK
           </button>
         </div>

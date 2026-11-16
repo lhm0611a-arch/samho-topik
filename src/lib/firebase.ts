@@ -362,26 +362,42 @@ export async function deleteExamResult(id: string): Promise<boolean> {
   }
 }
 
-export async function exportResultsToCSV() {
+export async function exportResultsToCSV(customResults?: any[], filenameSuffix?: string): Promise<boolean> {
   try {
     await ensureAuth();
 
-    const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'exam_results');
-    const snapshot = await getDocs(colRef);
+    let rows: any[] = [];
+    if (Array.isArray(customResults) && customResults.length > 0) {
+      rows = customResults;
+    } else {
+      const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'exam_results');
+      const snapshot = await getDocs(colRef);
+      if (snapshot.empty) {
+        return false;
+      }
+      snapshot.forEach(docSnap => {
+        rows.push(docSnap.data());
+      });
+    }
 
-    if(snapshot.empty) {
-      alert("저장된 응시 결과가 없습니다.");
-      return;
+    if (rows.length === 0) {
+      return false;
     }
 
     let csvContent = "\uFEFF"; 
     csvContent += "응시일시,모의고사명,소속업체명,수험번호,이름,총점,듣기점수,읽기점수,맞은개수\n";
 
-    snapshot.forEach(doc => {
-      const d = doc.data();
+    rows.forEach(d => {
       let dateStr = 'N/A';
-      if (d.timestamp && d.timestamp.toDate) {
-        dateStr = new Date(d.timestamp.toDate()).toLocaleString('ko-KR');
+      if (d.timestamp) {
+        if (typeof d.timestamp.toDate === 'function') {
+          dateStr = new Date(d.timestamp.toDate()).toLocaleString('ko-KR');
+        } else if (d.timestamp.seconds) {
+          dateStr = new Date(d.timestamp.seconds * 1000).toLocaleString('ko-KR');
+        } else {
+          const parsed = new Date(d.timestamp);
+          if (!isNaN(parsed.getTime())) dateStr = parsed.toLocaleString('ko-KR');
+        }
       }
       
       const examName = `"${(d.examName || '').toString().replace(/"/g, '""')}"`;
@@ -389,23 +405,23 @@ export async function exportResultsToCSV() {
       const regNo = `"${(d.registrationNo || '').toString().replace(/"/g, '""')}"`;
       const name = `"${(d.studentName || '').toString().replace(/"/g, '""')}"`;
 
-      csvContent += `${dateStr},${examName},${company},${regNo},${name},${d.score},${d.lcScore},${d.rcScore},${d.correctCount}\n`;
+      csvContent += `"${dateStr}",${examName},${company},${regNo},${name},${d.score ?? 0},${d.lcScore ?? 0},${d.rcScore ?? 0},${d.correctCount ?? 0}\n`;
     });
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
+    const suffix = filenameSuffix ? `_${filenameSuffix}` : '';
     link.setAttribute("href", url);
-    link.setAttribute("download", `TOPIK_응시결과_${new Date().toISOString().slice(0,10)}.csv`);
+    link.setAttribute("download", `TOPIK_응시결과${suffix}_${new Date().toISOString().slice(0,10)}.csv`);
     
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-
-    alert("엑셀(CSV) 다운로드가 완료되었습니다!");
+    return true;
   } catch(e: any) {
     console.error("엑셀 추출 에러:", e);
-    alert("데이터 다운로드 중 오류가 발생했습니다: " + e.message);
+    return false;
   }
 }
 
